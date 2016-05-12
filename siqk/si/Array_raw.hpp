@@ -125,7 +125,7 @@ private:
 namespace Kokkos {
 typedef void DefaultExecutionSpace;
 inline void fence() {}
-};
+}
 
 namespace ko {
 using std::min;

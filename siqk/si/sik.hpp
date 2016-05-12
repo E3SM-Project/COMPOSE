@@ -105,7 +105,7 @@ struct PlaneGeometry {
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
-  static void output (const CV v, int& no, Array2D<double>& vo) {
+  static bool output (const CV v, int& no, Array2D<double>& vo) {
 #ifdef SIKQ_DEBUG
     if (no >= vo.n()) {
       std::stringstream ss;
@@ -114,9 +114,11 @@ struct PlaneGeometry {
       error(ss.str().c_str());
     }
 #endif
+    if (no >= vo.n()) return false;
     vo(0,no) = v[0];
     vo(1,no) = v[1];
     ++no;
+    return true;
   }
 
   //todo Handle non-convex case.
@@ -203,7 +205,7 @@ struct SphereGeometry {
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
-  static void output (const CV v, int& no, Array2D<double>& vo) {
+  static bool output (const CV v, int& no, Array2D<double>& vo) {
 #ifdef SIKQ_DEBUG
     if (no >= vo.n()) {
       std::stringstream ss;
@@ -212,10 +214,12 @@ struct SphereGeometry {
       error(ss.str().c_str());
     }
 #endif
+    if (no >= vo.n()) return false;
     vo(0,no) = v[0];
     vo(1,no) = v[1];
     vo(2,no) = v[2];
     ++no;
+    return true;
   }
 
   //todo Handle non-convex case.
@@ -246,10 +250,6 @@ struct SphereGeometry {
 // Sutherland-Hodgmann polygon clipping algorithm. Follow Foley, van Dam,
 // Feiner, Hughes Fig 3.49.
 namespace sh {
-// Max number of vertices in a clipped polygon. We want to use a lot of small
-// stack-allocated arrays; use this number in those declarations.
-static constexpr int max_nvert = 20;
-
 /* A mesh is described by the following arrays:
        p: 3 x #nodes, the array of vertices.
        e: max(#verts) x #elems, the array of element base-0 indices.
@@ -271,7 +271,7 @@ struct Mesh {
 
 // Generally not a user routine.
 template <typename geo, typename CV> KOKKOS_INLINE_FUNCTION
-void clip_against_edge (
+bool clip_against_edge (
   // Input vertex list.
   const Array2D<const double>& vi, const int ni,
   // Output vertex list.
@@ -288,24 +288,25 @@ void clip_against_edge (
   for (int j = 0; j < ni; ++j) {
     p = vi(j);
     if (geo::inside(p, ce1, cen)) {
-      if (geo::inside(s, ce1, cen))
-        geo::output(p, no, vo);
-      else {
+      if (geo::inside(s, ce1, cen)) {
+        if ( ! geo::output(p, no, vo)) return false;
+      } else {
         geo::intersect(s, p, ce1, cen, intersection);
-        geo::output(intersection, no, vo);
-        geo::output(p, no, vo);
+        if ( ! geo::output(intersection, no, vo)) return false;
+        if ( ! geo::output(p, no, vo)) return false;
       }
     } else if (geo::inside(s, ce1, cen)) {
       geo::intersect(s, p, ce1, cen, intersection);
-      geo::output(intersection, no, vo);
+      if ( ! geo::output(intersection, no, vo)) return false;
     }
     s = p;
   }
+  return true;
 }
 
 // Efficient user routine that uses the mesh data structure.
 template <typename geo> KOKKOS_INLINE_FUNCTION
-void clip_against_poly (
+bool clip_against_poly (
   // Clip mesh. m.e(:,cp_e) is the element, and m.en(:,cp_e) is the
   // corresponding list of normal indices.
   const Mesh& m, const int cp_e,
@@ -314,11 +315,11 @@ void clip_against_poly (
   const Array2D<const double>& vi, const int ni,
   // On output, vo(:,0:no-1) are vertices of the clipped polygon. no is 0 if
   // there is no intersection.
-  Array2D<double>& vo, int& no)
+  Array2D<double>& vo, int& no,
+  double* const wrk, const int nwrk)
 {
-  double buf[3*sh::max_nvert];
-  Array2D<double> vo1(3, sh::max_nvert, buf);
-  int nos[] = { no, 0 };
+  Array2D<double> vo1(3, nwrk/3, wrk);
+  int nos[] = { 0, 0 };
   Array2D<double>* vs[] = { &vo, &vo1 };
 
   const auto e = m.e(cp_e);
@@ -334,36 +335,39 @@ void clip_against_poly (
     std::swap(nos[0], nos[1]);
   }
 
-  clip_against_edge<geo>(vi, ni, *vs[0], nos[0], m.p(e[0]), m.nml(en[0]));
-  if ( ! nos[0]) return;
+  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], m.p(e[0]), m.nml(en[0])))
+    return false;
+  if ( ! nos[0]) return true;
 
   for (int ie = 1, ielim = nv - 1; ; ++ie) {
-    clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], m.p(e[ie]),
-                           m.nml(en[ie]));
-    if ( ! nos[1]) return;
+    if ( ! clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], m.p(e[ie]),
+                                  m.nml(en[ie])))
+      return false;
+    if ( ! nos[1]) return true;
     if (ie == ielim) break;
     std::swap(vs[0], vs[1]);
     std::swap(nos[0], nos[1]);
   }
 
   no = nos[1];
+  return true;
 }
 
 // Not used for real stuff; just a convenient version for testing. In this
 // version, clip_poly is a list of clip polygon vertices. This is instead of the
 // mesh data structure.
 template <typename geo> KOKKOS_INLINE_FUNCTION
-void clip_against_poly (
+bool clip_against_poly (
   // Clip polygon's (p, e) pair.
   const Array2D<const double>& clip_poly,
   // Clip polygon edges' inward-facing normals.
   const Array2D<const double>& clip_edge_normals,
   const Array2D<const double>& vi, const int ni,
-  Array2D<double>& vo, int& no)
+  Array2D<double>& vo, int& no,
+  double* const wrk, const int nwrk)
 {
-  double buf[3*sh::max_nvert];
-  Array2D<double> vo1(3, sh::max_nvert, buf);
-  int nos[] = { no, 0 };
+  Array2D<double> vo1(3, nwrk/3, wrk);
+  int nos[] = { 0, 0 };
   Array2D<double>* vs[] = { &vo, &vo1 };
 
   no = 0;
@@ -373,20 +377,23 @@ void clip_against_poly (
     std::swap(nos[0], nos[1]);
   }
 
-  clip_against_edge<geo>(vi, ni, *vs[0], nos[0], clip_poly(0),
-                         clip_edge_normals(0));
-  if ( ! nos[0]) return;
+  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], clip_poly(0),
+                                clip_edge_normals(0)))
+    return false;
+  if ( ! nos[0]) return true;
 
   for (int ie = 1, ielim = clip_poly.n() - 1; ; ++ie) {
-    clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], clip_poly(ie),
-                           clip_edge_normals(ie));
-    if ( ! nos[1]) return;
+    if ( ! clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], clip_poly(ie),
+                                  clip_edge_normals(ie)))
+      return false;
+    if ( ! nos[1]) return true;
     if (ie == ielim) break;
     std::swap(vs[0], vs[1]);
     std::swap(nos[0], nos[1]);
   }
 
   no = nos[1];
+  return true;
 }
 } // namespace sh
 
@@ -670,6 +677,8 @@ private:
 };
 
 namespace test {
+static constexpr int max_nvert = 20;
+
 // In practice, we want to form high-quality normals using information about the
 // mesh, such as that it is a CS mesh. For testing, form the normals from edge
 // vertices. (This leads to increasing cancellation error with mesh refinement.)
@@ -738,11 +747,14 @@ public:
     OTSearchFunctor f;
     ot.apply(ebb, f);
     // In and out vertex lists.
-    double buf[6*sh::max_nvert];
+    double buf[6*max_nvert];
     Array2D<double>
-      vi(3, sh::max_nvert, buf),
-      vo(3, sh::max_nvert, buf + 3*sh::max_nvert);
+      vi(3, max_nvert, buf),
+      vo(3, max_nvert, buf + 3*max_nvert);
     int ni, no;
+    // Workspace.
+    double wrk[3*max_nvert];
+    const int nwrk = 3*max_nvert;
     // Area of all overlapping regions.
     double a = 0;
     for (const auto icp : f.hits) {
@@ -753,7 +765,7 @@ public:
         copy(vi(i), p(e(i,k)), 3);
         ++ni;
       }
-      sh::clip_against_poly<geo>(cm, icp, vi, ni, vo, no);
+      sh::clip_against_poly<geo>(cm, icp, vi, ni, vo, no, wrk, nwrk);
       if (no) {
         // A non-0 intersection was found. Accumulate the area.
         a += geo::calc_area(Array2D<const double>(vo.m(), no, vo.data()));

@@ -99,9 +99,13 @@ calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
   fill_quad(p, poly);
   for (int i = 0; i < 4; ++i)
     Geo::edge_normal(clip_poly(i), clip_poly((i+1) % 4), nml(i));
-  Array2D<double> vo(3, sh::max_nvert);
+  Array2D<double> vo(3, test::max_nvert);
   int no;
-  sh::clip_against_poly<Geo>(clip_poly, nml, poly, 4, vo, no);
+  {
+    double wrk[3*test::max_nvert];
+    const int nwrk = 3*test::max_nvert;
+    sh::clip_against_poly<Geo>(clip_poly, nml, poly, 4, vo, no, wrk, nwrk);
+  }
   Array2D<const double> intersection(3, no, vo.data());
   if (wm) {
     write_matlab("clip_poly", clip_poly);

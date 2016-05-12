@@ -19,7 +19,7 @@ true area 1.0196e+00 mesh area 1.0196e+00 relerr 3.2447e-13
 The first line is the input. The second line shows total test time, memory
 highwater, octree construction time, and (search, clip, and area calculation)
 time. The third line shows the true overlap area, the area based on the meshes,
-and the relative error. As the mesh is refined, the relative error drops because
-(a) the sphere polygon area calculation is naive and (b) the edge normals have
-increasing cancellatione error. Each is part of the test setup and would not be
-used in practice.
+and the relative error. As the mesh is refined, the relative error increases
+because (a) the sphere polygon area calculation is naive and (b) the edge
+normals have increasing cancellation error. Each is part of the test setup and
+would not be used in practice.
