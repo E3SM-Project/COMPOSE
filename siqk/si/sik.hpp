@@ -54,11 +54,6 @@ static void print_times (const std::string& name, const double* const parts,
   printf("\n");
 #endif
 }
-static void print_times (const std::string& name, const double total) {
-#ifdef SIQK_TIME
-   printf("%20s %1.3e s %5.1f MB\n", name.c_str(), total, get_memusage());
-#endif
-}
 
 template <typename V, typename CV>
 static void copy (V dst, CV src, const int n) {
@@ -316,9 +311,11 @@ bool clip_against_poly (
   // On output, vo(:,0:no-1) are vertices of the clipped polygon. no is 0 if
   // there is no intersection.
   Array2D<double>& vo, int& no,
-  double* const wrk, const int nwrk)
+  // Workspace. nvertwrk applies to both wrk and vo.n(). If nvertwrk is not
+  // large enough, false is returned.
+  double* const wrk, const int nvertwrk)
 {
-  Array2D<double> vo1(3, nwrk/3, wrk);
+  Array2D<double> vo1(3, nvertwrk, wrk);
   int nos[] = { 0, 0 };
   Array2D<double>* vs[] = { &vo, &vo1 };
 
@@ -358,15 +355,15 @@ bool clip_against_poly (
 // mesh data structure.
 template <typename geo> KOKKOS_INLINE_FUNCTION
 bool clip_against_poly (
-  // Clip polygon's (p, e) pair.
+  // Clip polygon.
   const Array2D<const double>& clip_poly,
   // Clip polygon edges' inward-facing normals.
   const Array2D<const double>& clip_edge_normals,
   const Array2D<const double>& vi, const int ni,
   Array2D<double>& vo, int& no,
-  double* const wrk, const int nwrk)
+  double* const wrk, const int nvertwrk)
 {
-  Array2D<double> vo1(3, nwrk/3, wrk);
+  Array2D<double> vo1(3, nvertwrk, wrk);
   int nos[] = { 0, 0 };
   Array2D<double>* vs[] = { &vo, &vo1 };
 
@@ -754,7 +751,6 @@ public:
     int ni, no;
     // Workspace.
     double wrk[3*max_nvert];
-    const int nwrk = 3*max_nvert;
     // Area of all overlapping regions.
     double a = 0;
     for (const auto icp : f.hits) {
@@ -765,7 +761,7 @@ public:
         copy(vi(i), p(e(i,k)), 3);
         ++ni;
       }
-      sh::clip_against_poly<geo>(cm, icp, vi, ni, vo, no, wrk, nwrk);
+      sh::clip_against_poly<geo>(cm, icp, vi, ni, vo, no, wrk, max_nvert);
       if (no) {
         // A non-0 intersection was found. Accumulate the area.
         a += geo::calc_area(Array2D<const double>(vo.m(), no, vo.data()));

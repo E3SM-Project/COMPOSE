@@ -5,6 +5,7 @@
 #endif
 #include "sik.hpp"
 using namespace siqk;
+#include "fsi.h"
 
 template <typename T>
 void copy (Array2D<T>& d, const Array2D<const T>& s) {
@@ -33,6 +34,28 @@ write_matlab (const std::string& name, const Array2D<const double>& p,
     printf(" %d %d %d %d;", e(0,ie)+1, e(1,ie)+1, e(2,ie)+1, e(3,ie)+1);
   printf("].';\n");
 }
+
+#ifdef SIQK_FORTRAN
+static int test_fortran (const Array2D<const double>& clip_poly,
+                         const Array2D<const double>& nml,
+                         const Array2D<const double>& poly) {
+  int nerr = 0, no, fno, info;
+  const int nvi = poly.n();
+  Array2D<double> vo(3, test::max_nvert), fvo(3, test::max_nvert);
+  double wrk[3*test::max_nvert];
+  sh::clip_against_poly<SphereGeometry>(clip_poly, nml, poly, nvi, vo, no,
+                                        wrk, test::max_nvert);
+  const int ncp = clip_poly.n();
+  clipagainstpolysphere_(clip_poly.data(), &ncp, nml.data(), poly.data(), &nvi,
+                         fvo.data(), &fno, wrk, &test::max_nvert, &info);
+  if (info != 0) ++nerr;
+  if (fno != no) ++nerr;
+  for (int i = 0; i < no; ++i)
+    for (int j = 0; j < 3; ++j)
+      if (fvo(j,i) != vo(j,i)) ++nerr;
+  return nerr;
+}
+#endif
 
 static void make_planar_mesh (Array2D<double>& p, Array2D<int>& e,
                               const int n) {
@@ -97,8 +120,8 @@ calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
   int no;
   {
     double wrk[3*test::max_nvert];
-    const int nwrk = 3*test::max_nvert;
-    sh::clip_against_poly<Geo>(clip_poly, nml, poly, 4, vo, no, wrk, nwrk);
+    sh::clip_against_poly<Geo>(clip_poly, nml, poly, 4, vo, no,
+                               wrk, test::max_nvert);
   }
   Array2D<const double> intersection(3, no, vo.data());
   if (wm) {
@@ -106,6 +129,13 @@ calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
     write_matlab("poly", poly);
     write_matlab("intersection", intersection);
   }
+#ifdef SIQK_FORTRAN
+  {
+    // Sneak in a test of the Fortran interface.
+    const int nerr = test_fortran(clip_poly, nml, poly);
+    std::cerr << "Fortran test " << (nerr ? "FAIL" : "PASS") << "ED\n";
+  }
+#endif
   return Geo::calc_area(intersection);
 }
 
