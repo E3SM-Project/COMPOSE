@@ -1,8 +1,3 @@
-// mycpp -g test.cpp; if [ $? == 0 ]; then ./a.out -m | grep "mat=1" > foo.m; fi
-// >> clf;msik('draw_test_output','foo');ic
-
-// ko=/home/ambradl/lib/kokkos/cpu; mycpp -DSIQK_USE_KOKKOS -I$ko/include -L$ko/lib -fopenmp test.cpp -lkokkos -ldl
-
 #ifdef SIQK_USE_KOKKOS
 # include "Array_Kokkos.hpp"
 #else
@@ -10,8 +5,6 @@
 #endif
 #include "sik.hpp"
 using namespace siqk;
-
-typedef SphereGeometry Geo;
 
 template <typename T>
 void copy (Array2D<T>& d, const Array2D<const T>& s) {
@@ -90,6 +83,7 @@ static void fill_quad (const Array2D<const double>& p, Array2D<double>& poly) {
 }
 
 // Area of the outline of (p,e) clipped against the outline of (cp,ce).
+template <typename Geo>
 static double
 calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
                 const Array2D<const double>& p, const Array2D<const int>& e,
@@ -115,6 +109,12 @@ calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
   return Geo::calc_area(intersection);
 }
 
+template <typename Geo> void finalize_mesh (Array2D<double>& p) {}
+template <> void finalize_mesh<SphereGeometry> (Array2D<double>& p) {
+  project_onto_sphere(p);
+}
+
+template <typename Geo>
 static int
 run (const int n, const double angle, const double xlate, const double ylate,
      const bool wm) {
@@ -131,11 +131,11 @@ run (const int n, const double angle, const double xlate, const double ylate,
   perturb_mesh(p, e, angle, xlate, ylate);
 
   // Project these meshes onto the sphere.
-  project_onto_sphere(cp);
-  project_onto_sphere(p);
+  finalize_mesh<Geo>(cp);
+  finalize_mesh<Geo>(p);
 
   // True intersection area from quadrilateral boundary of the mesh.
-  const double ta = calc_true_area(cp, ce, p, e, wm);
+  const double ta = calc_true_area<Geo>(cp, ce, p, e, wm);
   // Area from the sum over the common refinement polygons.
   const double a = test::test_area_ot<Geo>(cp, ce, p, e);
 
@@ -146,7 +146,7 @@ run (const int n, const double angle, const double xlate, const double ylate,
     write_matlab("cm", cp, ce);
     write_matlab("m", p, e);
   }
-  return re < 1e-10 ? 0 : 1;
+  return re < 1e-8 ? 0 : 1;
 }
 
 inline bool
@@ -158,25 +158,32 @@ eq (const std::string& a, const char* const b1, const char* const b2 = 0) {
 struct Input {
   int n;
   double angle, xlate, ylate;
-  bool write_matlab;
+  bool write_matlab, geo_sphere;
 
   Input (int argc, char** argv)
-    : n(5), angle(M_PI*1e-1), xlate(1e-1), ylate(1e-1), write_matlab(false)
+    : n(5), angle(M_PI*1e-1), xlate(1e-1), ylate(1e-1), write_matlab(false),
+      geo_sphere(true)
   {
     for (int i = 1; i < argc; ++i) {
       const std::string& token = argv[i];
-      if (eq(token, "-n"))
-        n = atoi(argv[++i]);
-      if (eq(token, "-m", "--write-matlab"))
-        write_matlab = true;
+      if (eq(token, "-n")) n = atoi(argv[++i]);
+      if (eq(token, "-m", "--write-matlab")) write_matlab = true;
+      if (eq(token, "--plane")) geo_sphere = false;
+      if (eq(token, "--xlate")) xlate = atof(argv[++i]);
+      if (eq(token, "--ylate")) ylate = atof(argv[++i]);
+      if (eq(token, "--angle")) angle = atof(argv[++i]);
     }
 
     print(std::cout);
   }
 
   void print (std::ostream& os) {
-    os << "n (-n): " << n
-       << "\n";
+    os << "n (-n): " << n << "\n"
+       << "write matlab (-m): " << write_matlab << "\n"
+       << "planar geometry (--plane): " << ! geo_sphere << "\n"
+       << "angle (--angle): " << angle << "\n"
+       << "xlate (--xlate): " << xlate << "\n"
+       << "ylate (--ylate): " << ylate << "\n";
   }
 };
 
@@ -186,7 +193,11 @@ int main (int argc, char** argv) {
 #endif
   {
     Input in(argc, argv);
-    run(in.n, in.angle, in.xlate, in.ylate, in.write_matlab);  
+    int nerr = 0;
+    nerr += (in.geo_sphere ?
+             run<SphereGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab) :
+             run<PlaneGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab));
+    std::cerr << (nerr ? "FAIL" : "PASS") << "ED\n";
   }
 #ifdef SIQK_USE_KOKKOS
   Kokkos::finalize_all();
