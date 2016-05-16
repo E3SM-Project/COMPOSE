@@ -33,7 +33,7 @@ public:
     a_p_ = std::shared_ptr<T>(new T[n], std::default_delete<T[]>());
     a_ = a_p_.get();
   }
-  void reset (const int n, T* const a) { n_ = n; a_p_ = nullptr; a_ = a; }
+  void reset (const int n, T* const a) { n_ = n; a_p_.reset(); a_ = a; }
   const int& n () const { return n_; }
   T* data () { return a_; }
   const T* data () const { return a_; }
@@ -78,7 +78,7 @@ public:
     a_p_ = std::shared_ptr<T>(new T[m*n], std::default_delete<T[]>());
     a_ = a_p_.get();
   }
-  void reset (const int m, const int n, T* const a) { m_ = m; n_ = n; a_p_ = nullptr; a_ = a; }
+  void reset (const int m, const int n, T* const a) { m_ = m; n_ = n; a_p_.reset(); a_ = a; }
   const int& m () const { return m_; }
   const int& n () const { return n_; }
   T* data () { return a_; }
