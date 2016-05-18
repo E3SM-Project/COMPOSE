@@ -95,7 +95,13 @@ struct PlaneGeometry {
   template <typename CV, typename V> KOKKOS_INLINE_FUNCTION
   static void intersect (const CV v1, const CV v2, const CV e1, const CV en,
                          V intersection) {
-    const double a = dot_c_amb(en, e1, v1) / dot_c_amb(en, v2, v1);
+    double a; {
+      const double
+        num = dot_c_amb(en, e1, v1),
+        den = dot_c_amb(en, v2, v1);
+      a = num == 0 || den == 0 ? 0 : num/den;
+      a = a < 0 ? 0 : a > 1 ? 1 : a;
+    }
     combine(v1, v2, a, intersection);
   }
 
@@ -194,7 +200,13 @@ struct SphereGeometry {
   template <typename CV, typename V> KOKKOS_INLINE_FUNCTION
   static void intersect (const CV v1, const CV v2, const CV e1, const CV en,
                          V intersection) {
-    const double a = dot_c_amb(en, e1, v1) / dot_c_amb(en, v2, v1);
+    double a; {
+      const double
+        num = dot_c_amb(en, e1, v1),
+        den = dot_c_amb(en, v2, v1);
+      a = num == 0 || den == 0 ? 0 : num/den;
+      a = a < 0 ? 0 : a > 1 ? 1 : a;
+    }
     combine(v1, v2, a, intersection);
     normalize(intersection);
   }
