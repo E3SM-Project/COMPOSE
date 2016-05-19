@@ -16,7 +16,6 @@
 #endif
 
 namespace siqk {
-
 #ifdef SIQK_TIME
 static timeval tic () {
   timeval t;
@@ -88,8 +87,8 @@ struct PlaneGeometry {
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
-  static bool inside (const CV v, const CV e1, const CV en) {
-    return dot_c_amb(en, v, e1) >= 0;
+  static bool inside (const CV v, const CV e1, const CV e2, const CV en) {
+    return dot_c_amb(en, v, e1) > 0 && dot_c_amb(en, v, e2) > 0;
   }
 
   template <typename CV, typename V> KOKKOS_INLINE_FUNCTION
@@ -189,8 +188,8 @@ struct SphereGeometry {
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
-  static bool inside (const CV v, const CV a, const CV n) {
-    return dot_c_amb(n, v, a) >= 0;
+  static bool inside (const CV v, const CV a1, const CV a2, const CV n) {
+    return dot_c_amb(n, v, a1) > 0 && dot_c_amb(n, v, a2) > 0;
   }
 
   /* Let
@@ -214,14 +213,8 @@ struct SphereGeometry {
       a = a < 0 ? 0 : a > 1 ? 1 : a;
     }
     // FP identity is sometimes useful, so let's enforce it.
-    if (a == 0)
-      copy(intersection, v1);
-    else if (a == 1)
-      copy(intersection, v2);
-    else {
-      combine(v1, v2, a, intersection);
-      normalize(intersection);
-    }
+    combine(v1, v2, a, intersection);
+    normalize(intersection);
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
@@ -296,8 +289,8 @@ bool clip_against_edge (
   const Array2D<const double>& vi, const int ni,
   // Output vertex list.
   Array2D<double>& vo, int& no,
-  // One point of the clip edge.
-  const CV ce1,
+  // The end points of the clip edge segment.
+  const CV ce1, const CV ce2,
   // Clip edge's inward-facing normal.
   const CV cen)
 {
@@ -307,15 +300,15 @@ bool clip_against_edge (
   s = vi(ni-1);
   for (int j = 0; j < ni; ++j) {
     p = vi(j);
-    if (geo::inside(p, ce1, cen)) {
-      if (geo::inside(s, ce1, cen)) {
+    if (geo::inside(p, ce1, ce2, cen)) {
+      if (geo::inside(s, ce1, ce2, cen)) {
         if ( ! geo::output(p, no, vo)) return false;
       } else {
         geo::intersect(s, p, ce1, cen, intersection);
         if ( ! geo::output(intersection, no, vo)) return false;
         if ( ! geo::output(p, no, vo)) return false;
       }
-    } else if (geo::inside(s, ce1, cen)) {
+    } else if (geo::inside(s, ce1, ce2, cen)) {
       geo::intersect(s, p, ce1, cen, intersection);
       if ( ! geo::output(intersection, no, vo)) return false;
     }
@@ -357,13 +350,14 @@ bool clip_against_poly (
     std::swap(nos[0], nos[1]);
   }
 
-  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], m.p(e[0]), m.nml(en[0])))
+  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], m.p(e[0]), m.p(e[1]),
+                                m.nml(en[0])))
     return false;
   if ( ! nos[0]) return true;
 
   for (int ie = 1, ielim = nv - 1; ; ++ie) {
     if ( ! clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], m.p(e[ie]),
-                                  m.nml(en[ie])))
+                                  m.p(e[(ie+1) % nv]), m.nml(en[ie])))
       return false;
     if ( ! nos[1]) return true;
     if (ie == ielim) break;
@@ -393,20 +387,21 @@ bool clip_against_poly (
   Array2D<double>* vs[] = { &vo, &vo1 };
 
   no = 0;
-  if (clip_poly.n() % 2 == 0) {
+  const auto nv = clip_poly.n();
+  if (nv % 2 == 0) {
     // Make sure the final vertex output list is in the caller's buffer.
     std::swap(vs[0], vs[1]);
     std::swap(nos[0], nos[1]);
   }
 
-  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], clip_poly(0),
+  if ( ! clip_against_edge<geo>(vi, ni, *vs[0], nos[0], clip_poly(0), clip_poly(1),
                                 clip_edge_normals(0)))
     return false;
   if ( ! nos[0]) return true;
 
-  for (int ie = 1, ielim = clip_poly.n() - 1; ; ++ie) {
+  for (int ie = 1, ielim = nv - 1; ; ++ie) {
     if ( ! clip_against_edge<geo>(*vs[0], nos[0], *vs[1], nos[1], clip_poly(ie),
-                                  clip_edge_normals(ie)))
+                                  clip_poly((ie+1) % nv), clip_edge_normals(ie)))
       return false;
     if ( ! nos[1]) return true;
     if (ie == ielim) break;
