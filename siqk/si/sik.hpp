@@ -8,12 +8,28 @@
 #include <sstream>
 #include <vector>
 #include <set>
+#include <limits>
 
 #ifdef SIQK_TIME
 # include <unistd.h>
 # include <sys/time.h>
 # include <sys/resource.h>
 #endif
+
+#define pr(m) do {                              \
+    std::stringstream _ss_;                     \
+    _ss_ << m << std::endl;                     \
+    std::cerr << _ss_.str();                    \
+  } while (0)
+#define prc(m) pr(#m << " | " << (m))
+#define puf(m)"(" << #m << " " << (m) << ")"
+#define pu(m) << " " << puf(m)
+template<typename T>
+static void prarr (const std::string& name, const T* const v, const size_t n) {
+  std::cerr << name << ": ";
+  for (size_t i = 0; i < n; ++i) std::cerr << " " << v[i];
+  std::cerr << "\n";
+}
 
 namespace siqk {
 #ifdef SIQK_TIME
@@ -205,6 +221,12 @@ struct SphereGeometry {
   template <typename CV, typename V> KOKKOS_INLINE_FUNCTION
   static void intersect (const CV v1, const CV v2, const CV e1, const CV en,
                          V intersection) {
+    /* Consider the case where e1 == v1 or e1 == v2. All == are FP.
+         If e1 == v1, then num = 0, a = 0, and intersection is set to v1.
+         If e2 == v1, then num == den, a = 1, and intersection is set to v2.
+         These two cases I believe are the only ones that matter to the bow-tie
+       issue in Dave's use case.
+     */
     double a; {
       const double
         num = dot_c_amb(en, e1, v1),
@@ -212,9 +234,14 @@ struct SphereGeometry {
       a = num == 0 || den == 0 ? 0 : num/den;
       a = a < 0 ? 0 : a > 1 ? 1 : a;
     }
-    // FP identity is sometimes useful, so let's enforce it.
-    combine(v1, v2, a, intersection);
-    normalize(intersection);
+    if (a == 0)
+      copy(intersection, v1);
+    else if (a == 1)
+      copy(intersection, v2);
+    else {
+      combine(v1, v2, a, intersection);
+      normalize(intersection);
+    }
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
