@@ -168,6 +168,12 @@ struct SphereGeometry {
   static double dot_c_amb (const CV c, const CV a, const CV b) {
     return c[0]*(a[0] - b[0]) + c[1]*(a[1] - b[1]) + c[2]*(a[2] - b[2]);
   }
+  template <typename V, typename CV> KOKKOS_INLINE_FUNCTION
+  static void copy (V& d, const CV& s) {
+    d[0] = s[0];
+    d[1] = s[1];
+    d[2] = s[2];
+  }
   template <typename CV, typename V> KOKKOS_INLINE_FUNCTION
   static void combine (const CV u, const CV v, const double a, V x) {
     const double oma = 1 - a;
@@ -207,8 +213,15 @@ struct SphereGeometry {
       a = num == 0 || den == 0 ? 0 : num/den;
       a = a < 0 ? 0 : a > 1 ? 1 : a;
     }
-    combine(v1, v2, a, intersection);
-    normalize(intersection);
+    // FP identity is sometimes useful, so let's enforce it.
+    if (a == 0)
+      copy(intersection, v1);
+    else if (a == 1)
+      copy(intersection, v2);
+    else {
+      combine(v1, v2, a, intersection);
+      normalize(intersection);
+    }
   }
 
   template <typename CV> KOKKOS_INLINE_FUNCTION
