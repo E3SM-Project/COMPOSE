@@ -33,7 +33,7 @@ public:
     a_p_ = std::shared_ptr<T>(new T[n], std::default_delete<T[]>());
     a_ = a_p_.get();
   }
-  void reset (const int n, T* const a) { n_ = n; a_p_.reset(); a_ = a; }
+  void reset (const int n, T* const a) { n_ = n; a_p_ = nullptr; a_ = a; }
   const int& n () const { return n_; }
   T* data () { return a_; }
   const T* data () const { return a_; }
@@ -47,7 +47,7 @@ public:
 private:
 #ifdef SIQK_DEBUG
   void debug (const int& i) const {
-    if (i < 0 || i >= m_) {
+    if (i < 0 || i >= n_) {
       std::stringstream ss;
       ss << "Array1D: i is " << i << " but n_ is " << n_ << "\n";
       error(ss.str().c_str());
@@ -78,7 +78,7 @@ public:
     a_p_ = std::shared_ptr<T>(new T[m*n], std::default_delete<T[]>());
     a_ = a_p_.get();
   }
-  void reset (const int m, const int n, T* const a) { m_ = m; n_ = n; a_p_.reset(); a_ = a; }
+  void reset (const int m, const int n, T* const a) { m_ = m; n_ = n; a_p_ = nullptr; a_ = a; }
   const int& m () const { return m_; }
   const int& n () const { return n_; }
   T* data () { return a_; }
@@ -110,6 +110,16 @@ private:
   static void debug (const int& r, const int& c) {}
 #endif
 };
+
+template <typename T> inline T* slice (Array2D<T>& a, const int c) { return a(c); }
+template <typename T> inline const T* slice (const Array2D<T>& a, const int c) { return a(c); }
+template <typename T> inline int nslices (const Array2D<T>& a) { return a.n(); }
+template <typename T> inline int szslice (const Array2D<T>& a) { return a.m(); }
+
+template <typename T> inline Array1D<T> offset (Array1D<T>& a, const int os)
+{ return Array1D<T>(a.n() - os, a.data() + os); }
+template <typename T> inline Array2D<T> offset (Array2D<T>& a, const int os)
+{ return Array2D<T>(a.m(), a.n() - os, a.data() + a.m()*os); }
 
 // Define a few things to minimize KOKKOS guards.
 # ifndef KOKKOS_FUNCTION

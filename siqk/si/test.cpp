@@ -1,10 +1,6 @@
-#ifdef SIQK_USE_KOKKOS
-# include "Array_Kokkos.hpp"
-#else
-# include "Array_raw.hpp"
-#endif
-#include "sik.hpp"
-using namespace siqk;
+#include "Array_raw.hpp"
+#include "siqp.hpp"
+using namespace siqp;
 #include "fsi.h"
 
 template <typename T>
@@ -218,18 +214,10 @@ struct Input {
 };
 
 int main (int argc, char** argv) {
-#ifdef SIQK_USE_KOKKOS
-  Kokkos::initialize(argc, argv);
-#endif
-  {
-    Input in(argc, argv);
-    int nerr = 0;
-    nerr += (in.geo_sphere ?
-             run<SphereGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab) :
-             run<PlaneGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab));
-    std::cerr << (nerr ? "FAIL" : "PASS") << "ED\n";
-  }
-#ifdef SIQK_USE_KOKKOS
-  Kokkos::finalize_all();
-#endif
+  Input in(argc, argv);
+  int nerr = 0;
+  nerr += (in.geo_sphere ?
+           run<SphereGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab) :
+           run<PlaneGeometry>(in.n, in.angle, in.xlate, in.ylate, in.write_matlab));
+  std::cerr << (nerr ? "FAIL" : "PASS") << "ED\n";
 }

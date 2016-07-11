@@ -24,12 +24,22 @@ program main
        -5.000000000000000000d-01, -4.999999999999998890d-01, 7.071067811865474617d-01, &
        -5.441369567663348894d-01, -3.342826900143283098d-01, 7.695258640473731093d-01, &
        -3.127479665047677160d-01, 3.127479665047677160d-01, 8.968709042522592378d-01 /), (/3,8/))
-  real*8 :: vo(3,20), wrk(3,20)
-  integer :: ncp = 4, np = 4, nvert = 20, no, info, i, j
+  real*8 :: ice_intersection(2,8) = reshape( &
+       (/ -5.000000000000000d-01, -3.397939048350230d-01, &
+       -3.127479665047677d-01, 3.127479665047677d-01, &
+       3.397939048350230d-01, 5.000000000000000d-01, &
+       5.000000000000000d-01, 5.000000000000000d-01, &
+       5.000000000000000d-01, 3.397939048350231d-01, &
+       3.127479665047677d-01, -3.127479665047677d-01, &
+       -3.397939048350231d-01, -5.000000000000000d-01, &
+       -5.000000000000000d-01, -5.000000000000000d-01 /), (/2,8/))
+  integer :: polyt(4) = (/ 0, 0, 0, 0 /)
+  real*8 :: vo(3,20), rwrk(3,20)
+  integer :: vto(20), iwrk(20)
+  integer :: ncp = 4, np = 4, nvert = 20, no, info, i, j, cnt
   real*8 :: err
 
-  call clipagainstpolysphere(clip, ncp, nml, poly, np, vo, no, wrk, nvert, info)
-
+  call clipagainstpolysphere(clip, ncp, nml, poly, np, vo, no, rwrk, nvert, info)
   err = 0
   do i = 1,8
      do j = 1,3
@@ -38,6 +48,17 @@ program main
   end do
   err = sqrt(err)
   if (no /= 8) err = err + 1
-  
+  print *, 'err', err
+
+  call iceclipagainstpolyplane(clip, ncp, nml, poly, polyt, np, vo, vto, no, &
+       rwrk, iwrk, nvert, info)
+  err = 0
+  do i = 1,8
+     do j = 1,2
+        err = err + (vo(j,i) - ice_intersection(j,i))**2
+     end do
+  end do
+  err = sqrt(err)
+  if (no /= 8) err = err + 1
   print *, 'err', err
 end program main
