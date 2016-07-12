@@ -24,7 +24,7 @@ program main
        -5.000000000000000000d-01, -4.999999999999998890d-01, 7.071067811865474617d-01, &
        -5.441369567663348894d-01, -3.342826900143283098d-01, 7.695258640473731093d-01, &
        -3.127479665047677160d-01, 3.127479665047677160d-01, 8.968709042522592378d-01 /), (/3,8/))
-  real*8 :: ice_intersection(2,8) = reshape( &
+  real*8 :: plane_intersection(2,8) = reshape( &
        (/ -5.000000000000000d-01, -3.397939048350230d-01, &
        -3.127479665047677d-01, 3.127479665047677d-01, &
        3.397939048350230d-01, 5.000000000000000d-01, &
@@ -48,17 +48,40 @@ program main
   end do
   err = sqrt(err)
   if (no /= 8) err = err + 1
-  print *, 'err', err
+  print *, 'sh  sphere err', err
+
+  do i = 1,8
+     do j = 1,3
+        vo(j,i) = 0
+     end do
+  end do
+
+  call clipagainstpolyplane(clip, ncp, nml, poly, np, vo, no, rwrk, nvert, info)
+  err = 0
+  do i = 1,8
+     do j = 1,2
+        err = err + (vo(j,i) - plane_intersection(j,mod(i+1,8)+1))**2
+     end do
+  end do
+  err = sqrt(err)
+  if (no /= 8) err = err + 1
+  print *, 'sh  plane  err', err
+
+  do i = 1,8
+     do j = 1,3
+        vo(j,i) = 0
+     end do
+  end do
 
   call iceclipagainstpolyplane(clip, ncp, nml, poly, polyt, np, vo, vto, no, &
        rwrk, iwrk, nvert, info)
   err = 0
   do i = 1,8
      do j = 1,2
-        err = err + (vo(j,i) - ice_intersection(j,i))**2
+        err = err + (vo(j,i) - plane_intersection(j,i))**2
      end do
   end do
   err = sqrt(err)
   if (no /= 8) err = err + 1
-  print *, 'err', err
+  print *, 'ice plane  err', err
 end program main

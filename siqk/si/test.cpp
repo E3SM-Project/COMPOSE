@@ -32,6 +32,7 @@ write_matlab (const std::string& name, const Array2D<const double>& p,
 }
 
 #ifdef SIQK_FORTRAN
+template <typename Geo>
 static int test_fortran (const Array2D<const double>& clip_poly,
                          const Array2D<const double>& nml,
                          const Array2D<const double>& poly) {
@@ -39,11 +40,18 @@ static int test_fortran (const Array2D<const double>& clip_poly,
   const int nvi = poly.n();
   Array2D<double> vo(3, test::max_nvert), fvo(3, test::max_nvert);
   double wrk[3*test::max_nvert];
-  sh::clip_against_poly<SphereGeometry>(clip_poly, nml, poly, nvi, vo, no,
-                                        wrk, test::max_nvert);
   const int ncp = clip_poly.n();
-  clipagainstpolysphere_(clip_poly.data(), &ncp, nml.data(), poly.data(), &nvi,
-                         fvo.data(), &fno, wrk, &test::max_nvert, &info);
+  if (std::is_same<Geo, SphereGeometry>::value) {
+    sh::clip_against_poly<SphereGeometry>(clip_poly, nml, poly, nvi, vo, no,
+                                          wrk, test::max_nvert);
+    clipagainstpolysphere_(clip_poly.data(), &ncp, nml.data(), poly.data(), &nvi,
+                           fvo.data(), &fno, wrk, &test::max_nvert, &info);
+  } else {
+    sh::clip_against_poly<PlaneGeometry>(clip_poly, nml, poly, nvi, vo, no,
+                                         wrk, test::max_nvert);
+    clipagainstpolyplane_(clip_poly.data(), &ncp, nml.data(), poly.data(), &nvi,
+                          fvo.data(), &fno, wrk, &test::max_nvert, &info);    
+  }
   if (info != 0) ++nerr;
   if (fno != no) ++nerr;
   for (int i = 0; i < no; ++i)
@@ -128,7 +136,7 @@ calc_true_area (const Array2D<const double>& cp, const Array2D<const int>& ce,
 #ifdef SIQK_FORTRAN
   {
     // Sneak in a test of the Fortran interface.
-    const int nerr = test_fortran(clip_poly, nml, poly);
+    const int nerr = test_fortran<Geo>(clip_poly, nml, poly);
     std::cerr << "Fortran test " << (nerr ? "FAIL" : "PASS") << "ED\n";
   }
 #endif
@@ -162,17 +170,29 @@ run (const int n, const double angle, const double xlate, const double ylate,
 
   // True intersection area from quadrilateral boundary of the mesh.
   const double ta = calc_true_area<Geo>(cp, ce, p, e, wm);
-  // Area from the sum over the common refinement polygons.
-  const double a = test::test_area_ot<Geo>(cp, ce, p, e);
 
-  // Report information.
-  const double re = std::abs(a - ta)/ta;
-  fprintf(stderr, "true area %1.4e mesh area %1.4e relerr %1.4e\n", ta, a, re);
-  if (wm) {
-    write_matlab("cm", cp, ce);
-    write_matlab("m", p, e);
+  bool pass = true;
+  for (int cnt = 0;
+       // ice works only for PlaneGeometry right now.
+       cnt < (std::is_same<Geo, PlaneGeometry>::value ? 2 : 1);
+       ++cnt) {
+    const bool use_ice = cnt == 1;
+    // Area from the sum over the common refinement polygons. Use sh the first
+    // time and ice the second. When using ice, edges are cedges in data
+    // structure but geometrically straight.
+    const double a = test::test_area_ot<Geo>(cp, ce, p, e, use_ice);
+
+    // Report information.
+    const double re = std::abs(a - ta)/ta;
+    pass = pass && re < 1e-8;
+    fprintf(stderr, "ice %d true area %1.4e mesh area %1.4e relerr %1.4e\n",
+            use_ice, ta, a, re);
+    if (wm) {
+      write_matlab("cm", cp, ce);
+      write_matlab("m", p, e);
+    }
   }
-  return re < 1e-8 ? 0 : 1;
+  return pass ? 0 : 1;
 }
 
 inline bool

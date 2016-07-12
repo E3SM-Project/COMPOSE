@@ -1,6 +1,20 @@
-// Fortran interface to simple polygon clipping routine.
+// Fortran interface to polygon clipping routines.
 
 extern "C" void clipagainstpolysphere_(
+  // 3 x clip_poly_n_vertices clip spherical polygon vertex list.
+  double const* const clip_poly, int const* const clip_poly_n_vertices,
+  // 3 x clip_poly_n_vertices clip polygon's inward-facing edge normals.
+  double const* const clip_edge_normals,
+  // 3 x ni polygon to clip.
+  double const* const to_clip_poly, int const* const ni,
+  // On output, a 3 x no clipped polygon.
+  double* const vo, int* const no,
+  // Workspace. Both vo and wrk must have n_vertices of space available.
+  double* const wrk, int const* const n_vertices,
+  // info = 0 on success. info = 1 if n_vertices is not large enough.
+  int* const info);
+
+extern "C" void clipagainstpolyplane_(
   // 3 x clip_poly_n_vertices clip spherical polygon vertex list.
   double const* const clip_poly, int const* const clip_poly_n_vertices,
   // 3 x clip_poly_n_vertices clip polygon's inward-facing edge normals.
@@ -38,7 +52,7 @@ extern "C" void clipagainstpolysphere_(
 //   a in [0,1] is the parameter in the curve
 //     x(a) = (1-a)^2 s + a (1-a) m + a^2 p.                                 (1)
 //   s and p sit on the curve, but m in general does not. We can define m by
-//     x(1/2) = M => m = 4 n - s - p,
+//     x(1/2) = M => m = 4 M - s - p,
 // where M is a point that is intended to be on the curve and serves as a useful
 // midpoint reference. This construction has the essential property that the
 // curve is invariant to the swapping of s and p. However, the clip routines are

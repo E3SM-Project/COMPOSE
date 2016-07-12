@@ -247,7 +247,7 @@ struct SphereGeometry {
     normalize(en);
   }
 
-  // Is v inside the lined (a1,a2) having normal n?
+  // Is v inside the line (a1,a2) having normal n?
   template <typename CV>
   static bool inside (const CV v, const CV a1, const CV a2, const CV n) {
     return dot_c_amb(n, v, a1) > 0 && dot_c_amb(n, v, a2) > 0;
@@ -308,8 +308,7 @@ struct SphereGeometry {
   }
 
   //todo Handle non-convex case.
-  // This uses a terrible formula, but it's just for testing.
- 
+  // This uses a terrible formula, but it's just for testing. 
   static double calc_area (const Array2D<const double>& v) {
     double area = 0;
     for (int i = 1; i < v.n() - 1; ++i) {
@@ -329,6 +328,13 @@ struct SphereGeometry {
     const double d = dot(a, b);
     if (d >= 1) return 0;
     return acos(d);
+  }
+
+  // For quadratic edges.
+  template <typename CV, typename V>
+  static int intersect (const CV s, const CV m, const CV p, const CV e1,
+                        const CV nml, V as) {
+    assert(0); // Not yet.
   }
 };
 
@@ -514,7 +520,7 @@ bool clip_against_poly (
 //   a in [0,1] is the parameter in the curve
 //     x(a) = (1-a)^2 s + a (1-a) m + a^2 p.                                 (1)
 //   s and p sit on the curve, but m in general does not. We can define m by
-//     x(1/2) = M => m = 4 n - s - p,
+//     x(1/2) = M => m = 4 M - s - p,
 // where M is a point that is intended to be on the curve and serves as a useful
 // midpoint reference. This construction has the essential property that the
 // curve is invariant to the swapping of s and p. However, the clip routines are
@@ -660,7 +666,7 @@ struct ice {
     return true;
   }
 
-  // sed must have >= 2 slices alocated.
+  // sed must have >= 2 slices allocated.
   template <typename CV, typename Array>
   static UInt clip_sed_against_sed (const CV se1, const CV se2, const CV sen,
                                     const CV s, const CV p, Array sed) {
@@ -685,15 +691,21 @@ struct ice {
     }
   }
 
-  // eds and evts must have >= 5 slices alocated.
+  // eds and evts must have >= 5 slices allocated.
   template <typename CV, typename Array, typename IV>
   static UInt clip_ced_against_sed (const CV se1, const CV se2, const CV sen,
                                     const CV s, const CV m, const CV p,
                                     Array eds, IV edvts) {
-    Real as[2];
-    const UInt nas = intersect(s, m, p, se1, sen, as);
-    const bool s_inside = geo::inside(s, se1, se2, sen);
-    const bool p_inside = geo::inside(p, se1, se2, sen);
+    Real as[2] = {0};
+    UInt nas = intersect(s, m, p, se1, sen, as);
+    bool s_inside = geo::inside(s, se1, se2, sen);
+    bool p_inside = geo::inside(p, se1, se2, sen);
+    // Handle cases where FP fails to lead to a consistent state.
+    if (p_inside != s_inside && nas == 0) {
+      // There is no FP intersection, so p and s might as well both be inside.
+      p_inside = s_inside = true;
+    }
+
     if (p_inside) {
       if (s_inside) {
         if (nas < 2) {
@@ -734,6 +746,7 @@ struct ice {
         }
       }
     }
+
     assert(0);
     return 0;
   }
@@ -782,9 +795,8 @@ struct ice {
   // Create m in (s,m,p) so that the curve hits n.
   template <typename CV, typename V>
   static void middle_matches (const CV s, const CV p, const CV n, V m) {
-    const Real fn = 4*n;
     for (UInt i = 0; i < dim; ++i)
-      m[i] = fn*n[i] - s[i] - p[i];
+      m[i] = 4*n[i] - s[i] - p[i];
   }
 
   template <typename CV, typename V>
@@ -1197,9 +1209,106 @@ public:
   }
 };
 
+#ifdef SIKQ_DEBUG_CRITICAL
+static void
+write_matlab (const std::string& name, const Array2D<const double>& p) {
+  printf("mat=1; %s = [", name.c_str());
+  for (int ip = zero(p); ip < p.n(); ++ip)
+    printf(" %1.15e %1.15e %1.15e;", p(0,ip), p(1,ip), p(2,ip));
+  printf("].';\n");
+}
+#endif
+
 template <typename geo>
-double test_area_ot (const Array2D<const double>& cp, const Array2D<const int>& ce,
-                     const Array2D<const double>& p, const Array2D<const int>& e) {
+class IceTestAreaOTFunctor {
+  sh::Mesh cm;
+  const Array2D<const double> p;
+  const Array2D<const int> e;
+  Octree<geo> ot;
+
+public:
+  typedef double value_type;
+
+  IceTestAreaOTFunctor (const sh::Mesh& cm, const Array2D<const double>& p,
+                        const Array2D<const int>& e, const Octree<geo>& ot)
+    : cm(cm), p(p), e(e), ot(ot)
+  {}
+  
+  // k indexes (p,e).
+  void operator() (const int k, double& area) const {
+    // Clipped element bounding box.
+    double ebb[6];
+    Octree<geo>::calc_bb(p, e(k), e.m(), ebb);
+    // Get list of possible overlaps.
+    OTSearchFunctor f;
+    ot.apply(ebb, f);
+    int ni, no;
+    // Area of all overlapping regions.
+    double a = 0;
+    for (const auto icp : f.hits) {
+      ni = 0;
+      static const int N = 2*max_nvert;
+      double rbuf[15*N];
+      Array2D<double> cp(3, N, rbuf), cens(3, N, rbuf + 3*N),
+        vi(3, N, rbuf + 6*N), ivo(3, N, rbuf + 9*N), vo(3, N, rbuf + 12*N);
+      int ibuf[2*N];
+      Array1D<int> vti(N, ibuf), vto(N, ibuf + N);
+      int ncp = 0;
+      for (int i = 0; i < e.m(); ++i) {
+        if (e(i,icp) == -1) break;
+        geo::copy(cp(i), cm.p(cm.e(i,icp)));
+        geo::copy(cens(i), cm.nml(cm.en(i,icp)));
+        ++ncp;
+      }
+      for (int i = 0; i < e.m(); ++i) {
+        if (e(i,k) == -1) break;
+        vti[2*i] = 0; vti[2*i+1] = 1;
+        geo::copy(vi(2*i), p(e(i,k)));
+        ni += 2;
+      }
+      for (int i = 0; i < e.m(); ++i) {
+        double n[3];
+        geo::combine(vi(2*i), vi((2*(i+1)) % ni), 0.5, n);
+        ice<geo>::middle_matches(vi(2*i), vi((2*(i+1)) % ni), n, vi(2*i+1));
+      }
+      double rwrk[3*N];
+      int iwrk[N];
+      ice<geo>::clip_cpoly_against_convex_poly(
+        Array2D<const double>(cp.m(), ncp, cp.data()),
+        Array2D<const double>(cens.m(), ncp, cens.data()),
+        vi, vti, ni, ivo, vto, no, rwrk, iwrk, N);
+      int n = 0;
+      for (int i = 0; i < no; ++i)
+        if (vto[i] == 0) {
+          geo::copy(vo(n), ivo(i));
+          ++n;
+        }
+      no = n;
+      if (no) {
+        const double
+          a1 = geo::calc_area(Array2D<const double>(vo.m(), no, vo.data()));
+        a += a1;
+#ifdef SIKQ_DEBUG_CRITICAL
+        if (a1 < -1e-6) {
+          write_matlab("cp", Array2D<const double>(cp.m(), ncp, cp.data()));
+          write_matlab("vi", Array2D<const double>(vi.m(), ni, vi.data()));
+          write_matlab("vo", Array2D<const double>(vo.m(), no, vo.data()));
+          exit(-1);
+        }
+#endif
+      }
+    }
+    // Add our area to the reduction.
+    area += a;
+  }
+};
+
+template <typename geo>
+double test_area_ot (
+  const Array2D<const double>& cp, const Array2D<const int>& ce,
+  const Array2D<const double>& p, const Array2D<const int>& e,
+  const bool use_ice)
+{
   // Clip mesh and edge normal calculation. (In practice, we'd like to use
   // higher-quality edge normals.)
   sh::Mesh cm; cm.p = cp; cm.e = ce;
@@ -1214,7 +1323,10 @@ double test_area_ot (const Array2D<const double>& cp, const Array2D<const int>& 
   // Compute the area in a silly way to test search and interesection.
   t = tic();
   double area = 0;
-  ko::parallel_reduce(e.n(), TestAreaOTFunctor<geo>(cm, p, e, ot), area);
+  if (use_ice)
+    ko::parallel_reduce(e.n(), IceTestAreaOTFunctor<geo>(cm, p, e, ot), area);
+  else
+    ko::parallel_reduce(e.n(), TestAreaOTFunctor<geo>(cm, p, e, ot), area);
   et[1] = toc(t);
   print_times("test_area_ot", et, 2);
   return area;
@@ -1222,4 +1334,4 @@ double test_area_ot (const Array2D<const double>& cp, const Array2D<const int>& 
 } // namespace test
 } // namespace siqp
 
-#endif // INCLUDE_SIK_HPP
+#endif // INCLUDE_SIQP_HPP

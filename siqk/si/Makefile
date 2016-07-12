@@ -3,7 +3,7 @@ CXX=g++-4.7
 FC=gfortran-4.7
 CXXFLAGS=$(opt) -Wall -pedantic -std=c++11 -DSIQK_FORTRAN
 FFLAGS=$(opt) -ffixed-line-length-none
-LDFLAGS=-lgfortran
+LDFLAGS=-lgfortran -fopenmp
 
 CXXSOURCES=test.cpp fsi.cpp
 F90SOURCES=testf.f90
@@ -28,3 +28,7 @@ test: $(CXXOBJECTS) $(F90OBJECTS)
 
 clean:
 	rm -f *.o test.exe testf.exe
+
+test.o: siqp.hpp
+fsi.o: fsi.h siqp.hpp
+testf.o: siqp.hpp fsi.h fsi.cpp
