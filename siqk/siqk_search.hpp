@@ -3,6 +3,7 @@
 
 #include "siqk_defs.hpp"
 #include "siqk_geometry.hpp"
+#include <vector>
 
 namespace siqk {
 

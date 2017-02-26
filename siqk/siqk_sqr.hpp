@@ -173,6 +173,13 @@ void calc_sphere_to_ref (
   }
 }
 
+// Ref coords, packed (x,y), CCW, starting from (-1,-1).
+KOKKOS_INLINE_FUNCTION
+const Real* get_ref_vertices () {
+  static const Real c[] = {-1, -1, 1, -1, 1, 1, -1, 1};
+  return c;
+}
+
 namespace test {
 struct Info {
   Int sum_nits, max_nits, nfails;
@@ -240,7 +247,7 @@ public:
   }
 };
 
-static Int test_sphere_to_ref (const ConstVec3s::HostMirror& p,
+inline Int test_sphere_to_ref (const ConstVec3s::HostMirror& p,
                                const ConstIdxs::HostMirror& e) {
   TestSphereToRefKernel k(p, e);
   Info info;

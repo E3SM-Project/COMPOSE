@@ -7,6 +7,8 @@
 #include "siqk.hpp"
 using namespace siqk;
 
+#define INSTANTIATE_PLANE
+
 //> Code that will likely be moved to library files.
 
 template <typename CV3s>
@@ -506,7 +508,7 @@ int main (int argc, char** argv) {
       nerr += run<SphereGeometry>(in);
     else {
 #ifdef INSTANTIATE_PLANE
-      run<PlaneGeometry>(in);
+      nerr += run<PlaneGeometry>(in);
 #else
       Kokkos::abort("PlaneGeometry not instantiated.");
 #endif

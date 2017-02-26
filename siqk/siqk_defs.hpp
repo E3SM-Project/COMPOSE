@@ -64,8 +64,9 @@ static double get_memusage () {
   return ru.ru_maxrss*scale;
 }
 #else
-static inline int tic () { return 0; }
-static inline double toc (const int&) { return 0; }
+inline int tic () { return 0; }
+inline double toc (const int&) { return 0; }
+inline double get_memusage () { return 0; }
 #endif
 static void print_times (const std::string& name, const double* const parts,
                          const int nparts) {
