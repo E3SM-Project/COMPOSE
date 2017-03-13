@@ -21,7 +21,7 @@ cnt = 0
 for n in [4, 20, 40, 79]:
     if quick and n > 20: break
     for angle in angles:
-        cmd = ('OMP_NUM_THREADS=8 ./a.out --testno 1 --angle {angle:1.15e} -n {n:d}'.
+        cmd = ('OMP_NUM_THREADS=8 ./siqk_test --testno 1 --angle {angle:1.15e} -n {n:d}'.
                format(angle=angle, n=n))
         stat = os.system(cmd + ' |& grep PASSED &> /dev/null')
         if stat:
@@ -36,7 +36,7 @@ for n in [4, 50, 511, biggest]:
     for angle in angles:
         for xlate in xlates:
             for ylate in ylates:
-                cmd = ('OMP_NUM_THREADS=8 ./a.out --testno 0 --xlate {xlate:1.15e} --ylate {ylate:1.14e} --angle {angle:1.15e} -n {n:d}'.
+                cmd = ('OMP_NUM_THREADS=8 ./siqk_test --testno 0 --xlate {xlate:1.15e} --ylate {ylate:1.14e} --angle {angle:1.15e} -n {n:d}'.
                        format(xlate=xlate, ylate=ylate, angle=angle, n=n))
                 stat = os.system(cmd + ' |& grep PASSED &> /dev/null')
                 if stat:
