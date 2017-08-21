@@ -375,4 +375,4 @@ private:
 
 } // namespace siqk
 
-#endif
+#endif // INCLUDE_SIQK_SEARCH_HPP

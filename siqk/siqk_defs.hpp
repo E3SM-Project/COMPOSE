@@ -41,6 +41,20 @@ static void prarr (const std::string& name, const T* const v, const size_t n) {
   std::cerr << "\n";
 }
 
+#define SIQK_THROW_IF(condition, message) do {                          \
+    if (condition) {                                                    \
+      std::stringstream _ss_;                                           \
+      _ss_ << __FILE__ << ":" << __LINE__ << ": The condition:\n" << #condition \
+        "\nled to the exception\n" << message << "\n";                  \
+      throw std::logic_error(_ss_.str());                               \
+    }                                                                   \
+  } while (0)
+
+#define SIQK_STDERR_IF(condition, message) do { \
+  try { SIQK_THROW_IF(condition, message); } \
+  catch (const std::logic_error& e) { std::cerr << e.what(); } \
+} while (0)
+
 #ifdef SIQK_TIME
 static timeval tic () {
   timeval t;
@@ -196,6 +210,10 @@ void swap (T& a, T&b) {
   b = tmp;
 }
 template <typename T> KOKKOS_INLINE_FUNCTION constexpr T square (const T& x) { return x*x; }
-}
 
-#endif
+template<typename T> KOKKOS_INLINE_FUNCTION
+T sign (const T& a) { return a > 0 ? 1 : (a < 0 ? -1 : 0); }
+
+} // namespace siqk
+
+#endif // INCLUDE_SIQK_DEFS_HPP

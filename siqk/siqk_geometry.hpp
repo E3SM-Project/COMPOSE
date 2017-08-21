@@ -307,4 +307,4 @@ struct SphereGeometry {
 
 } // namespace siqk
 
-#endif
+#endif // INCLUDE_SIQK_GEOMETRY_HPP

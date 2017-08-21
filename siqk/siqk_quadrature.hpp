@@ -5,9 +5,12 @@
 
 namespace siqk {
 
-/* See, e.g.,
+/* For the TRISYM entries, see, e.g.,
      Zhang, Linbo, Tao Cui, and Hui Liu. "A set of symmetric quadrature rules on
-   triangles and tetrahedra." J. of Computational Mathematics (2009): 89-96.
+     triangles and tetrahedra." J. of Computational Mathematics (2009): 89-96.
+   For the TRITAYLOR, see
+     Day, David M. and Mark A. Taylor, "A new 11 point degree 6 cubature formula
+     for the triangle", PAMM 7 (2007).
 */
 #define SIQK_QUADRATURE_TRISYM_ORDER4_COORD                  \
   {0.108103018168070, 0.445948490915965, 0.445948490915965,  \
@@ -278,9 +281,30 @@ namespace siqk {
    0.0053678057381874528034004789844857,0.0053678057381874528034004789844857,0.0053678057381874528034004789844857, \
    0.0053678057381874528034004789844857}
 
+#define SIQK_QUADRATURE_TRITAY_ORDER6_COORD                             \
+  {4.724686653264358e-02, 5.725498667747682e-02, 8.954981467898796e-01, \
+   4.280913872509884e-02, 8.953626400245792e-01, 6.182822125032195e-02, \
+   2.921805130458027e-01, 6.844757484565146e-01, 2.334373849768268e-02, \
+   8.712234683377076e-01, 6.874625591502949e-02, 6.003027574726293e-02, \
+   5.086198608278325e-02, 6.156762055758400e-01, 3.334618083413767e-01, \
+   2.128646728100595e-01, 6.279461411977890e-01, 1.591891859921515e-01, \
+   2.817957679526839e-01, 6.290913834186361e-02, 6.552950937054525e-01, \
+   6.225041026512227e-01, 6.837821192050995e-02, 3.091176854282673e-01, \
+   7.604403244598745e-02, 2.875294583743921e-01, 6.364265091796204e-01, \
+   5.941924379444020e-01, 3.287835564131346e-01, 7.702400564246337e-02, \
+   3.353648085404556e-01, 3.122904050136449e-01, 3.523447864458995e-01}
+
+#define SIQK_QUADRATURE_TRITAY_ORDER6_WEIGHT                            \
+  {3.806807185295551e-02, 3.837935530775279e-02, 4.620045674456197e-02, \
+   5.346758944419899e-02, 8.375582696574595e-02, 1.016448330255167e-01, \
+   1.018615244613670e-01, 1.114218316600018e-01, 1.120094502629461e-01, \
+   1.247875714375583e-01, 1.884034888373949e-01}
+
 class TriangleQuadrature {
   const Real trisym_order4_coord_  [ 18] = SIQK_QUADRATURE_TRISYM_ORDER4_COORD;
   const Real trisym_order4_weight_ [  6] = SIQK_QUADRATURE_TRISYM_ORDER4_WEIGHT;
+  const Real tritay_order6_coord_  [ 33] = SIQK_QUADRATURE_TRITAY_ORDER6_COORD;
+  const Real tritay_order6_weight_ [ 11] = SIQK_QUADRATURE_TRITAY_ORDER6_WEIGHT;
   const Real trisym_order8_coord_  [ 48] = SIQK_QUADRATURE_TRISYM_ORDER8_COORD;
   const Real trisym_order8_weight_ [ 16] = SIQK_QUADRATURE_TRISYM_ORDER8_WEIGHT;
   const Real trisym_order12_coord_ [ 99] = SIQK_QUADRATURE_TRISYM_ORDER12_COORD;
@@ -301,6 +325,10 @@ public:
       coord = RawConstVec3s(trisym_order4_coord_, 6, 3);
       weight = RawConstArray(trisym_order4_weight_, 6);
       break;
+    case 6:
+      coord = RawConstVec3s(tritay_order6_coord_, 11, 3);
+      weight = RawConstArray(tritay_order6_weight_, 11);
+      break;
     case 8:
       coord = RawConstVec3s(trisym_order8_coord_, 16, 3);
       weight = RawConstArray(trisym_order8_weight_, 16);
@@ -317,10 +345,12 @@ public:
       coord = RawConstVec3s(trisym_order20_coord_, 88, 3);
       weight = RawConstArray(trisym_order20_weight_, 88);
       break;
+    default:
+      ko::abort("TriangleQuadrature::get_coef: order not supported.");
     }
   }
 };
 
 } // namespace siqk
 
-#endif
+#endif // INCLUDE_SIQK_QUADRATURE_HPP

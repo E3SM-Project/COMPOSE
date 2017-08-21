@@ -66,6 +66,9 @@ void calc_residual (const ConstVec3sT& p, const Quad& e, const Real a,
 
 // Compute the Jacobian matrix of the residual function: Jacobian(ref square ->
 // sphere).
+//   TODO Consider rewriting this in terms of the p=1 basis isoparametric
+// interpolation formulation. Better performance? See
+// calc_isoparametric_jacobian in slmmir.cpp.
 template <typename ConstVec3sT, typename Quad>
 KOKKOS_INLINE_FUNCTION
 void calc_Jacobian (const ConstVec3sT& p, const Quad& e, const Real a,
@@ -263,4 +266,4 @@ inline Int test_sphere_to_ref (const ConstVec3s::HostMirror& p,
 } // namespace sqr
 } // namespace siqk
 
-#endif
+#endif // INCLUDE_SIQK_SQR_HPP

@@ -335,4 +335,4 @@ template <typename geo> Real test_area_ot (
 } // namespace test
 } // namespace siqk
 
-#endif // INCLUDE_SIQK_HPP
+#endif // INCLUDE_SIQK_INTERSECT_HPP
