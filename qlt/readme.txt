@@ -9,5 +9,5 @@ $ ./kokkos/generate_makefile.bash --with-openmp --ldflags=-fPIC --prefix=/path/t
 2. cp an existing make.inc.* file to one for your machine, say,
 make.inc.mymachine. Edit it with machine-specific information. Then
     $ ln -s make.inc.machine make.inc
-    $ make -j8
-    $ ./siqk_runtests.py
+    $ make -j2
+    $ mpirun -np 4 ./testqlt -t # Look for PASS
