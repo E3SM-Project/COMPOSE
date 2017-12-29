@@ -1,7 +1,9 @@
-#ifndef INCLUDE_QLT_KOKKOS_HPP
-#define INCLUDE_QLT_KOKKOS_HPP
+#ifndef INCLUDE_CEDR_KOKKOS_HPP
+#define INCLUDE_CEDR_KOKKOS_HPP
 
-namespace qlt {
+#include <Kokkos_Core.hpp>
+
+namespace cedr {
 namespace impl {
 template <typename MemoryTraitsType, Kokkos::MemoryTraitsFlags flag>
 using MemoryTraits = Kokkos::MemoryTraits<
@@ -37,6 +39,14 @@ template <> struct DeviceType<Kokkos::Cuda> {
 typedef Kokkos::Device<Kokkos::DefaultExecutionSpace::execution_space,
                        Kokkos::DefaultExecutionSpace::memory_space> DefaultDeviceType;
 #endif
+
+// GPU-friendly replacements for std::*.
+template <typename T> KOKKOS_INLINE_FUNCTION
+const T& min (const T& a, const T& b) { return a < b ? a : b; }
+template <typename T> KOKKOS_INLINE_FUNCTION
+const T& max (const T& a, const T& b) { return a > b ? a : b; }
+template <typename T> KOKKOS_INLINE_FUNCTION
+void swap (T& a, T& b) { const T tmp = a; a = b; b = tmp; }
 }
 }
 

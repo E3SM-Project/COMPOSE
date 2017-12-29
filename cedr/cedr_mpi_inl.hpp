@@ -1,0 +1,4 @@
+#ifndef INCLUDE_CEDR_MPI_INL_HPP
+#define INCLUDE_CEDR_MPI_INL_HPP
+
+#endif

@@ -1,0 +1,10 @@
+# bash make_qltcpp.sh
+# mpicxx -Wall -pedantic -fopenmp -std=c++11 -I/home/ambradl/lib/kokkos/cpu/include qlt.cpp -L/home/ambradl/lib/kokkos/cpu/lib -lkokkos -ldl
+# OMP_PROC_BIND=false OMP_NUM_THREADS=2 mpirun -np 14 ./a.out -t
+
+(for f in cedr.hpp cedr_kokkos.hpp cedr_mpi.hpp cedr_util.hpp cedr_qlt.hpp cedr_local.hpp cedr_mpi_inl.hpp cedr_local_inl.hpp cedr_qlt_inl.hpp cedr_test.hpp cedr_util.cpp cedr_local.cpp cedr_mpi.cpp cedr_qlt.cpp cedr_test_1d_transport.cpp cedr_test.cpp; do
+    echo "//>> $f"
+    cat $f
+    echo ""
+done) > qlt.cpp
+sed sV'#include "cedr'V'//#include "cedr'V -i qlt.cpp

@@ -1,4 +1,4 @@
-#include "qlt.hpp"
+#include "cedr_qlt.hpp"
 
 #include <sys/time.h>
 
@@ -10,153 +10,8 @@
 #include <limits>
 #include <algorithm>
 
+namespace cedr {
 namespace qlt {
-namespace mpi {
-template <typename T> MPI_Datatype get_type();
-template <> MPI_Datatype get_type<int>() { return MPI_INT; }
-template <> MPI_Datatype get_type<double>() { return MPI_DOUBLE; }
-
-template <typename T>
-int reduce (const Parallel& p, const T* sendbuf, T* rcvbuf, int count, MPI_Op op,
-            int root) {
-  MPI_Datatype dt = get_type<T>();
-  return MPI_Reduce(const_cast<T*>(sendbuf), rcvbuf, count, dt, op, root, p.comm());
-}
-
-template <typename T>
-int all_reduce (const Parallel& p, const T* sendbuf, T* rcvbuf, int count, MPI_Op op) {
-  MPI_Datatype dt = get_type<T>();
-  return MPI_Allreduce(const_cast<T*>(sendbuf), rcvbuf, count, dt, op, p.comm());
-}
-
-template <typename T>
-int isend (const Parallel& p, const T* buf, int count, int dest, int tag,
-           MPI_Request* ireq) {
-  MPI_Datatype dt = get_type<T>();
-  MPI_Request ureq;
-  MPI_Request* req = ireq ? ireq : &ureq;
-  int ret = MPI_Isend(const_cast<T*>(buf), count, dt, dest, tag, p.comm(), req);
-  if ( ! ireq) MPI_Request_free(req);
-  return ret;
-}
-
-template <typename T>
-int irecv (const Parallel& p, T* buf, int count, int src, int tag, MPI_Request* ireq) {
-  MPI_Datatype dt = get_type<T>();
-  MPI_Request ureq;
-  MPI_Request* req = ireq ? ireq : &ureq;
-  int ret = MPI_Irecv(buf, count, dt, src, tag, p.comm(), req);
-  if ( ! ireq) MPI_Request_free(req);
-  return ret;
-}
-
-int waitany (int count, MPI_Request* reqs, int* index, MPI_Status* stats = nullptr) {
-  return MPI_Waitany(count, reqs, index, stats ? stats : MPI_STATUS_IGNORE);
-}
-
-int waitall (int count, MPI_Request* reqs, MPI_Status* stats = nullptr) {
-  return MPI_Waitall(count, reqs, stats ? stats : MPI_STATUS_IGNORE);
-}
-
-template<typename T>
-int gather (const Parallel& p, const T* sendbuf, int sendcount,
-            T* recvbuf, int recvcount, int root) {
-  MPI_Datatype dt = get_type<T>();
-  return MPI_Gather(sendbuf, sendcount, dt, recvbuf, recvcount, dt, root, p.comm());
-}
-
-template <typename T>
-int gatherv (const Parallel& p, const T* sendbuf, int sendcount,
-             T* recvbuf, const int* recvcounts, const int* displs, int root) {
-  MPI_Datatype dt = get_type<T>();
-  return MPI_Gatherv(sendbuf, sendcount, dt, recvbuf, recvcounts, displs, dt, root,
-                     p.comm());
-}
-
-bool all_ok (const Parallel& p, bool im_ok) {
-  int ok = im_ok, msg;
-  all_reduce<int>(p, &ok, &msg, 1, MPI_LAND);
-  return static_cast<bool>(msg);
-}
-} // namespace mpi
-
-Parallel::Ptr make_parallel (MPI_Comm comm) {
-  return std::make_shared<Parallel>(comm);
-}
-
-Int Parallel::size () const {
-  int sz = 0;
-  MPI_Comm_size(comm_, &sz);
-  return sz;
-}
-
-Int Parallel::rank () const {
-  int pid = 0;
-  MPI_Comm_rank(comm_, &pid);
-  return pid;
-}
-
-namespace impl {
-#define pr(m) do {                                  \
-    int _pid_ = 0;                                      \
-    MPI_Comm_rank(MPI_COMM_WORLD, &_pid_);              \
-    std::stringstream _ss_;                             \
-    _ss_.precision(15);                                 \
-    _ss_ << "pid " << _pid_ << " " << m << std::endl;   \
-    std::cerr << _ss_.str();                            \
-  } while (0)
-#define pr0(m) do {                                 \
-    int _pid_; MPI_Comm_rank(MPI_COMM_WORLD, &_pid_);   \
-    if (_pid_ != 0) break;                              \
-    std::stringstream _ss_;                             \
-    _ss_ << "pid " << _pid_ << " " << m << std::endl;   \
-    std::cerr << _ss_.str();                            \
-  } while (0)
-#define prc(m) pr(#m << " | " << (m))
-#define pr0c(m) pr0(#m << " | " << (m))
-#define puf(m) "(" << #m << " " << (m) << ")"
-#define pu(m) << " " << puf(m)
-template <typename T>
-void prarr (const std::string& name, const T* const v, const size_t n) {
-  std::stringstream ss;
-  ss.precision(15);
-  ss << name << " = [";
-  for (size_t i = 0; i < n; ++i) ss << " " << v[i];
-  ss << "];";
-  pr(ss.str());
-}
-#define mprarr(m) qlt::impl::prarr(#m, m.data(), m.size())
-
-#define qlt_assert(condition) do {                                      \
-    if ( ! (condition)) {                                               \
-      std::stringstream _ss_;                                           \
-      _ss_ << __FILE__ << ":" << __LINE__ << ": FAIL:\n" << #condition  \
-        << "\n";                                                        \
-        throw std::logic_error(_ss_.str());                             \
-    }                                                                   \
-  } while (0)
-#define qlt_throw_if(condition, message) do {                           \
-    if (condition) {                                                    \
-      std::stringstream _ss_;                                           \
-      _ss_ << __FILE__ << ":" << __LINE__ << ": The condition:\n"       \
-           << #condition "\nled to the exception\n" << message << "\n"; \
-        throw std::logic_error(_ss_.str());                             \
-    }                                                                   \
-  } while (0)
-#define qlt_kernel_assert(condition) do {       \
-    if ( ! (condition))                         \
-      Kokkos::abort(#condition);                \
-  } while (0)
-#define qlt_kernel_throw_if(condition, message) do {                    \
-    if (condition)                                                      \
-      Kokkos::abort(#condition " led to the exception\n" message);      \
-  } while (0)
-
-inline Real reldif (const Real a, const Real b)
-{ return std::abs(b - a)/std::max(std::abs(a), std::abs(b)); }
-
-struct FILECloser { void operator() (FILE* fh) { fclose(fh); } };
-} // namespace impl
 
 class Timer {
 public:
@@ -326,16 +181,16 @@ Int init_tree (const tree::Node::Ptr& node, Int& id) {
   node->reserved = nullptr;
   Int depth = 0;
   for (Int i = 0; i < node->nkids; ++i) {
-    qlt_assert(node.get() == node->kids[i]->parent);
+    cedr_assert(node.get() == node->kids[i]->parent);
     depth = std::max(depth, init_tree(node->kids[i], id));
   }
   if (node->nkids) {
     node->rank = node->kids[0]->rank;
     node->cellidx = id++;
   } else {
-    qlt_throw_if(node->cellidx < 0 || node->cellidx >= id,
-                 "cellidx is " << node->cellidx << " but should be between " <<
-                 0 << " and " << id);
+    cedr_throw_if(node->cellidx < 0 || node->cellidx >= id,
+                  "cellidx is " << node->cellidx << " but should be between " <<
+                  0 << " and " << id);
   }
   return depth + 1;
 }
@@ -344,7 +199,7 @@ void level_schedule_and_collect (
   NodeSets& ns, const Int& my_rank, const tree::Node::Ptr& node, Int& level,
   bool& need_parent_ns_node)
 {
-  qlt_assert(node->rank != -1);
+  cedr_assert(node->rank != -1);
   level = -1;
   bool make_ns_node = false;
   for (Int i = 0; i < node->nkids; ++i) {
@@ -360,7 +215,7 @@ void level_schedule_and_collect (
   const bool node_is_owned = node->rank == my_rank;
   need_parent_ns_node = node_is_owned;
   if (node_is_owned || make_ns_node) {
-    qlt_assert( ! node->reserved);
+    cedr_assert( ! node->reserved);
     NodeSets::Node* ns_node = ns.alloc();
     // Levels hold only owned nodes.
     if (node_is_owned) ns.levels[level].nodes.push_back(ns_node);
@@ -378,7 +233,7 @@ void level_schedule_and_collect (
           NodeSets::Node* ns_kid;
           kid->reserved = ns_kid = ns.alloc();
           ns_node->kids[i] = ns_kid;
-          qlt_assert(kid->rank != my_rank);
+          cedr_assert(kid->rank != my_rank);
           ns_kid->rank = kid->rank;
           ns_kid->id = kid->cellidx;
           ns_kid->parent = nullptr; // Not needed.
@@ -445,7 +300,7 @@ void init_offsets (const Int my_rank, std::vector<RankNode>& rns,
       continue;
     }
     if (rank != prev_rank) {
-      qlt_assert(rank > prev_rank);
+      cedr_assert(rank > prev_rank);
       prev_rank = rank;
       mmds.push_back(NodeSets::Level::MPIMetaData());
       auto& mmd = mmds.back();
@@ -499,7 +354,7 @@ void init_comm (const Int my_rank, NodeSets& ns) {
 NodeSets::ConstPtr analyze (const Parallel::Ptr& p, const Int& ncells,
                             const tree::Node::Ptr& tree) {
   const auto nodesets = std::make_shared<NodeSets>();
-  qlt_assert( ! tree->parent);
+  cedr_assert( ! tree->parent);
   Int id = ncells;
   const Int depth = init_tree(tree, id);
   nodesets->levels.resize(depth);
@@ -515,7 +370,7 @@ Int check_comm (const NodeSets::ConstPtr& ns) {
   std::vector<Int> offsets(ns->nslots, 0);
   for (const auto& lvl : ns->levels)
     for (const auto& n : lvl.nodes) {
-      qlt_assert(n->offset < ns->nslots);
+      cedr_assert(n->offset < ns->nslots);
       ++offsets[n->offset];
       for (Int i = 0; i < n->nkids; ++i)
         if (n->kids[i]->rank != n->rank)
@@ -531,16 +386,16 @@ Int check_comm (const NodeSets::ConstPtr& ns) {
 Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
                       const Int ncells) {
   Int nerr = 0;
-  qlt_assert( ! ns->levels.empty());
-  qlt_assert( ! ns->levels[0].nodes.empty());
+  cedr_assert( ! ns->levels.empty());
+  cedr_assert( ! ns->levels[0].nodes.empty());
   Int my_nleaves = 0;
   for (const auto& n : ns->levels[0].nodes) {
-    qlt_assert( ! n->nkids);
+    cedr_assert( ! n->nkids);
     ++my_nleaves;
   }
   for (const auto& n : ns->levels[0].nodes) {
-    qlt_assert(n->offset < my_nleaves);
-    qlt_assert(n->id < ncells);
+    cedr_assert(n->offset < my_nleaves);
+    cedr_assert(n->id < ncells);
   }
   Int glbl_nleaves = 0;
   mpi::all_reduce(*p, &my_nleaves, &glbl_nleaves, 1, MPI_SUM);
@@ -662,7 +517,7 @@ int QLT<ES>::MetaData::get_problem_type_idx (const int& mask) {
   case CPT::cs: case CPT::cst: return 1;
   case CPT::t:  return 2;
   case CPT::ct: return 3;
-  default: qlt_kernel_throw_if(true, "Invalid problem type."); return -1;
+  default: cedr_kernel_throw_if(true, "Invalid problem type."); return -1;
   }
 }
 
@@ -730,7 +585,7 @@ void QLT<ES>::MetaData::init (const MetaDataBuilder& mdb) {
             a_d.prob2trcrptr);
   std::copy(a_h_.prob2bl2r, a_h_.prob2bl2r + nprobtypes + 1, a_d.prob2bl2r);
   std::copy(a_h_.prob2br2l, a_h_.prob2br2l + nprobtypes + 1, a_d.prob2br2l);
-  qlt_assert(a_d.prob2trcrptr[nprobtypes] == ntracers);
+  cedr_assert(a_d.prob2trcrptr[nprobtypes] == ntracers);
 }
 
 template <typename ES>
@@ -742,7 +597,8 @@ void QLT<ES>::BulkData::init (const MetaData& md, const Int& nslots) {
 }
 
 template <typename ES>
-void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree) {
+void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
+                    const tree::Node::Ptr& tree) {
   p_ = p;
   Timer::start(Timer::analyze);
   ns_ = impl::analyze(p, ncells, tree);
@@ -794,7 +650,7 @@ Int QLT<ES>::gci2lci (const Int& gci) const {
     get_owned_glblcells(gcis);
     mprarr(gcis);
   }
-  qlt_throw_if(it == gci2lci_.end(), "gci " << gci << " not in gci2lci map.");
+  cedr_throw_if(it == gci2lci_.end(), "gci " << gci << " not in gci2lci map.");
   return it->second;
 }
 
@@ -803,7 +659,7 @@ Int QLT<ES>::gci2lci (const Int& gci) const {
 // tracer index in the caller's numbering.
 template <typename ES>
 void QLT<ES>::declare_tracer (int problem_type) {
-  qlt_throw_if( ! mdb_, "end_tracer_declarations was already called; "
+  cedr_throw_if( ! mdb_, "end_tracer_declarations was already called; "
                 "it is an error to call declare_tracer now.");
   // For its exception side effect, and to get canonical problem type, since
   // some possible problem types map to the same canonical one:
@@ -820,8 +676,8 @@ void QLT<ES>::end_tracer_declarations () {
 
 template <typename ES>
 int QLT<ES>::get_problem_type (const Int& tracer_idx) const {
-  qlt_throw_if(tracer_idx < 0 || tracer_idx > md_.a_h.trcr2prob.extent_int(0),
-               "tracer_idx is out of bounds: " << tracer_idx);
+  cedr_throw_if(tracer_idx < 0 || tracer_idx > md_.a_h.trcr2prob.extent_int(0),
+                "tracer_idx is out of bounds: " << tracer_idx);
   return md_.a_h.trcr2prob[tracer_idx];
 }
 
@@ -855,7 +711,7 @@ void QLT<ES>::run () {
     Timer::start(Timer::snp);
     for (const auto& n : lvl.nodes) {
       if ( ! n->nkids) continue;
-      qlt_kernel_assert(n->nkids == 2);
+      cedr_kernel_assert(n->nkids == 2);
       // Total density.
       bd_.l2r_data(n->offset*l2rndps) = (bd_.l2r_data(n->kids[0]->offset*l2rndps) +
                                          bd_.l2r_data(n->kids[1]->offset*l2rndps));
@@ -870,9 +726,9 @@ void QLT<ES>::run () {
           Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
           const Real* const k0 = &bd_.l2r_data(n->kids[0]->offset*l2rndps + bdi);
           const Real* const k1 = &bd_.l2r_data(n->kids[1]->offset*l2rndps + bdi);
-          me[0] = sum_only ? k0[0] + k1[0] : impl::min(k0[0], k1[0]);
+          me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
           me[1] =            k0[1] + k1[1] ;
-          me[2] = sum_only ? k0[2] + k1[2] : impl::max(k0[2], k1[2]);
+          me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
           if (bsz == 4)
             me[3] =          k0[3] + k1[3] ;
         }
@@ -942,7 +798,7 @@ void QLT<ES>::run () {
         for (Int bi = bis; bi < bie; ++bi) {
           const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
           const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
-          qlt_assert(n->nkids == 2);
+          cedr_assert(n->nkids == 2);
           if ( ! (problem_type & ProblemType::shapepreserve)) {
             // Pass q_{min,max} info along. l2r data are updated for use in
             // solve_node_problem. r2l data are updated for use in isend.
@@ -961,15 +817,15 @@ void QLT<ES>::run () {
           const auto& k1 = n->kids[1];
           solve_node_problem(
             problem_type,
-            bd_.l2r_data( n->offset*l2rndps),
+             bd_.l2r_data( n->offset*l2rndps),
             &bd_.l2r_data( n->offset*l2rndps + l2rbdi),
-            bd_.r2l_data( n->offset*r2lndps + r2lbdi),
-            bd_.l2r_data(k0->offset*l2rndps),
+             bd_.r2l_data( n->offset*r2lndps + r2lbdi),
+             bd_.l2r_data(k0->offset*l2rndps),
             &bd_.l2r_data(k0->offset*l2rndps + l2rbdi),
-            bd_.r2l_data(k0->offset*r2lndps + r2lbdi),
-            bd_.l2r_data(k1->offset*l2rndps),
+             bd_.r2l_data(k0->offset*r2lndps + r2lbdi),
+             bd_.l2r_data(k1->offset*l2rndps),
             &bd_.l2r_data(k1->offset*l2rndps + l2rbdi),
-            bd_.r2l_data(k1->offset*r2lndps + r2lbdi));
+             bd_.r2l_data(k1->offset*r2lndps + r2lbdi));
         }
       }
     }
@@ -1053,7 +909,7 @@ class TestQLT {
 
   // For solution output, if requested.
   struct Writer {
-    std::unique_ptr<FILE, impl::FILECloser> fh;
+    std::unique_ptr<FILE, cedr::util::FILECloser> fh;
     std::vector<Int> ngcis;  // Number of i'th rank's gcis_ array.
     std::vector<int> displs; // Cumsum of above.
     std::vector<Int> gcis;   // Global cell indices packed by rank's gcis_ vector.
@@ -1115,9 +971,10 @@ private:
         qlt_.declare_tracer(t.problem_type);
       }
     qlt_.end_tracer_declarations();
-    qlt_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
+    cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
     for (size_t i = 0; i < tracers_.size(); ++i)
-      qlt_assert(qlt_.get_problem_type(i) == (tracers_[i].problem_type | PT::consistent));
+      cedr_assert(qlt_.get_problem_type(i) == (tracers_[i].problem_type |
+                                               PT::consistent));
     Timer::stop(Timer::trcrinit);
   }
 
@@ -1264,7 +1121,7 @@ private:
   void init_writer () {
     if (p_->amroot()) {
       w_ = std::make_shared<Writer>();
-      w_->fh = std::unique_ptr<FILE, impl::FILECloser>(fopen("QLT.py", "w"));
+      w_->fh = std::unique_ptr<FILE, cedr::util::FILECloser>(fopen("out_QLT.py", "w"));
       int n = gcis_.size();
       w_->ngcis.resize(p_->size());
       mpi::gather(*p_, &n, 1, w_->ngcis.data(), 1, p_->root());
@@ -1272,7 +1129,7 @@ private:
       w_->displs[0] = 0;
       for (size_t i = 0; i < w_->ngcis.size(); ++i)
         w_->displs[i+1] = w_->displs[i] + w_->ngcis[i];
-      qlt_assert(w_->displs.back() == ncells_);
+      cedr_assert(w_->displs.back() == ncells_);
       w_->gcis.resize(ncells_);
       mpi::gatherv(*p_, gcis_.data(), gcis_.size(), w_->gcis.data(), w_->ngcis.data(),
                    w_->displs.data(), p_->root());
@@ -1351,9 +1208,9 @@ private:
     const Int n = qlt.nlclcells();
     std::vector<Int> gcis;
     qlt.get_owned_glblcells(gcis);
-    qlt_assert(static_cast<Int>(gcis.size()) == n);
+    cedr_assert(static_cast<Int>(gcis.size()) == n);
     for (Int i = 0; i < n; ++i)
-      qlt_assert(qlt.gci2lci(gcis[i]) == i);
+      cedr_assert(qlt.gci2lci(gcis[i]) == i);
   }
 
   static Int check (const Parallel& p, const std::vector<Tracer>& ts, const Values& v) {
@@ -1365,7 +1222,7 @@ private:
     for (size_t ti = 0; ti < ts.size(); ++ti) {
       const auto& t = ts[ti];
 
-      qlt_assert(t.safe_should_hold);
+      cedr_assert(t.safe_should_hold);
       const bool safe_only = ! t.local_should_hold;
       const Int n = v.ncells();
       const Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
@@ -1443,14 +1300,14 @@ private:
       for (size_t ti = 0; ti < ts.size(); ++ti) {
         // Check mass conservation.
         const Real desired_mass = glbl_mass[2*ti], actual_mass = glbl_mass[2*ti+1],
-          rd = reldif(desired_mass, actual_mass);
+          rd = cedr::util::reldif(desired_mass, actual_mass);
         const bool mass_failed = rd > tol;
         if (mass_failed) {
           ++nerr;
           t_ok_gbl[ti] = false;
         }
         if ( ! t_ok_gbl[ti]) {
-          std::cout << "FAIL  " << ts[ti].str();
+          std::cout << "FAIL " << ts[ti].str();
           if (mass_failed) std::cout << " mass re " << rd;
           std::cout << "\n";
         }
@@ -1479,7 +1336,7 @@ public:
     {
       Real* rhom = v.rhom();
       for (Int i = 0; i < nlclcells; ++i)
-        qlt_.set_rho(i2lci_[i], rhom[i]);
+        qlt_.set_rhom(i2lci_[i], rhom[i]);
     }
     for (Int ti = 0; ti < nt; ++ti) {
       generate_Q(tracers_[ti], v);
@@ -1492,7 +1349,7 @@ public:
         Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
           * Qm_prev = v.Qm_prev(ti);
         for (Int i = 0; i < nlclcells; ++i)
-          qlt_.set_Q(i2lci_[i], ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
+          qlt_.set_Qm(i2lci_[i], ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
       }
       MPI_Barrier(p_->comm());
       Timer::start(Timer::qltrun);
@@ -1512,7 +1369,7 @@ public:
     for (Int ti = 0; ti < nt; ++ti) {
       Real* Qm = v.Qm(ti);
       for (Int i = 0; i < nlclcells; ++i)
-        Qm[i] = qlt_.get_Q(i2lci_[i], ti);
+        Qm[i] = qlt_.get_Qm(i2lci_[i], ti);
       if (write) write_post(tracers_[ti], v);
     }
     nerr += check(*p_, tracers_, v);
@@ -1559,7 +1416,7 @@ struct Mesh {
     nranks_ = p->size();
     p_ = p;
     pd_ = parallel_decomp;
-    qlt_assert(nranks_ <= nc_);
+    cedr_assert(nranks_ <= nc_);
   }
 
   Int ncell () const { return nc_; }
@@ -1598,8 +1455,12 @@ private:
 };
 
 tree::Node::Ptr make_tree (const Mesh& m, const Int cs, const Int ce,
-                           const tree::Node* parent) {
-  const Int cn = ce - cs, cn0 = cn/2;
+                           const tree::Node* parent, const bool imbalanced) {
+  const Int
+    cn = ce - cs,
+    cn0 = ( imbalanced && cn > 2 ?
+            cn/3 :
+            cn/2 );
   tree::Node::Ptr n = std::make_shared<tree::Node>();
   n->parent = parent;
   if (cn == 1) {
@@ -1609,18 +1470,19 @@ tree::Node::Ptr make_tree (const Mesh& m, const Int cs, const Int ce,
     return n;
   }
   n->nkids = 2;
-  n->kids[0] = make_tree(m, cs, cs + cn0, n.get());
-  n->kids[1] = make_tree(m, cs + cn0, ce, n.get());
+  n->kids[0] = make_tree(m, cs, cs + cn0, n.get(), imbalanced);
+  n->kids[1] = make_tree(m, cs + cn0, ce, n.get(), imbalanced);
   return n;
 }
 
-tree::Node::Ptr make_tree (const Mesh& m) {
-  return make_tree(m, 0, m.ncell(), nullptr);
+tree::Node::Ptr make_tree (const Mesh& m, const bool imbalanced) {
+  return make_tree(m, 0, m.ncell(), nullptr, imbalanced);
 }
 
-tree::Node::Ptr make_tree (const Parallel::Ptr& p, const Int& ncells) {
+tree::Node::Ptr make_tree (const Parallel::Ptr& p, const Int& ncells,
+                           const bool imbalanced) {
   Mesh m(ncells, p);
-  return make_tree(m);
+  return make_tree(m, imbalanced);
 }
 
 namespace test {
@@ -1637,18 +1499,24 @@ Int unittest (const Parallel::Ptr& p) {
   const Mesh::ParallelDecomp::Enum dists[] = { Mesh::ParallelDecomp::pseudorandom,
                                                Mesh::ParallelDecomp::contiguous };
   Int ne = 0;
-  for (size_t id = 0; id < sizeof(dists)/sizeof(*dists); ++id) {
-    Mesh m(std::max(42, 3*p->size()), p, Mesh::ParallelDecomp::pseudorandom);
-    tree::Node::Ptr tree = make_tree(m);
-    std::vector<Int> cells(m.ncell(), 0);
-    mark_cells(tree, cells);
-    for (Int i = 0; i < m.ncell(); ++i)
-      if (cells[i] != 1) ++ne;
-  }
+  for (size_t id = 0; id < sizeof(dists)/sizeof(*dists); ++id)
+    for (bool imbalanced: {false, true}) {
+      Mesh m(std::max(42, 3*p->size()), p, Mesh::ParallelDecomp::pseudorandom);
+      tree::Node::Ptr tree = make_tree(m, imbalanced);
+      std::vector<Int> cells(m.ncell(), 0);
+      mark_cells(tree, cells);
+      for (Int i = 0; i < m.ncell(); ++i)
+        if (cells[i] != 1) ++ne;
+    }
   return ne;
 }
 } // namespace test
 } // namespace oned
+
+tree::Node::Ptr tree::make_tree_over_1d_mesh (const Parallel::Ptr& p, const Int& ncells,
+                                              const bool imbalanced) {
+  return oned::make_tree(oned::Mesh(ncells, p), imbalanced);
+}
 
 namespace test {
 Int unittest_NodeSets (const Parallel::Ptr& p) {
@@ -1658,13 +1526,14 @@ Int unittest_NodeSets (const Parallel::Ptr& p) {
                                                Mesh::ParallelDecomp::contiguous };
   Int nerr = 0;
   for (size_t is = 0; is < sizeof(szs)/sizeof(*szs); ++is)
-    for (size_t id = 0; id < sizeof(dists)/sizeof(*dists); ++id) {
-      Mesh m(szs[is], p, dists[id]);
-      tree::Node::Ptr tree = make_tree(m);
-      impl::NodeSets::ConstPtr nodesets = impl::analyze(p, m.ncell(), tree);
-      tree = nullptr;
-      nerr += impl::unittest(p, nodesets, m.ncell());
-    }
+    for (size_t id = 0; id < sizeof(dists)/sizeof(*dists); ++id)
+      for (bool imbalanced: {false, true}) {
+        Mesh m(szs[is], p, dists[id]);
+        tree::Node::Ptr tree = make_tree(m, imbalanced);
+        impl::NodeSets::ConstPtr nodesets = impl::analyze(p, m.ncell(), tree);
+        tree = nullptr;
+        nerr += impl::unittest(p, nodesets, m.ncell());
+      }
   return nerr;
 }
 
@@ -1675,13 +1544,14 @@ Int unittest_QLT (const Parallel::Ptr& p, const bool write_requested=false) {
                                                Mesh::ParallelDecomp::pseudorandom };
   Int nerr = 0;
   for (size_t is = 0, islim = sizeof(szs)/sizeof(*szs); is < islim; ++is)
-    for (size_t id = 0, idlim = sizeof(dists)/sizeof(*dists); id < idlim; ++id) {
+    for (size_t id = 0, idlim = sizeof(dists)/sizeof(*dists); id < idlim; ++id)
+    for (bool imbalanced: {false, true}) {
       if (p->amroot()) {
-        std::cout << " (" << szs[is] << ", " << id << ")";
+        std::cout << " (" << szs[is] << ", " << id << ", " << imbalanced << ")";
         std::cout.flush();
       }
       Mesh m(szs[is], p, dists[id]);
-      tree::Node::Ptr tree = make_tree(m);
+      tree::Node::Ptr tree = make_tree(m, imbalanced);
       const bool write = (write_requested && m.ncell() < 3000 &&
                           is == islim-1 && id == idlim-1);
       nerr += test::test_qlt(p, tree, m.ncell(), 1, write);
@@ -1689,7 +1559,7 @@ Int unittest_QLT (const Parallel::Ptr& p, const bool write_requested=false) {
   return nerr;
 }
 
-Int run (const Parallel::Ptr& p, const Input& in) {
+Int run_unit_and_randomized_tests (const Parallel::Ptr& p, const Input& in) {
   Int nerr = 0;
   if (in.unittest) {
     Int ne;
@@ -1710,14 +1580,14 @@ Int run (const Parallel::Ptr& p, const Input& in) {
   if (nerr)
     return nerr;
   // Performance test.
-  if (in.ncells > 0) {
+  if (in.perftest && in.ncells > 0) {
     oned::Mesh m(in.ncells, p,
                  (in.pseudorandom ?
                   oned::Mesh::ParallelDecomp::pseudorandom :
                   oned::Mesh::ParallelDecomp::contiguous));
     Timer::init();
     Timer::start(Timer::total); Timer::start(Timer::tree);
-    tree::Node::Ptr tree = make_tree(m);
+    tree::Node::Ptr tree = make_tree(m, false);
     Timer::stop(Timer::tree);
     test::test_qlt(p, tree, in.ncells, in.nrepeat, false, in.verbose);
     Timer::stop(Timer::total);
@@ -1728,13 +1598,14 @@ Int run (const Parallel::Ptr& p, const Input& in) {
 
 } // namespace test
 } // namespace qlt
+} // namespace cedr
 
 #ifdef KOKKOS_HAVE_SERIAL
-template class qlt::QLT<Kokkos::Serial>;
+template class cedr::qlt::QLT<Kokkos::Serial>;
 #endif
 #ifdef KOKKOS_HAVE_OPENMP
-template class qlt::QLT<Kokkos::OpenMP>;
+template class cedr::qlt::QLT<Kokkos::OpenMP>;
 #endif
 #ifdef KOKKOS_HAVE_CUDA
-template class qlt::QLT<Kokkos::Cuda>;
+template class cedr::qlt::QLT<Kokkos::Cuda>;
 #endif

@@ -1,5 +1,5 @@
-#ifndef INCLUDE_QLT_HPP
-#define INCLUDE_QLT_HPP
+#ifndef INCLUDE_CEDR_QLT_HPP
+#define INCLUDE_CEDR_QLT_HPP
 
 #include <mpi.h>
 
@@ -9,31 +9,17 @@
 #include <vector>
 #include <map>
 
-#include <Kokkos_Core.hpp>
-#include "qlt_kokkos.hpp"
+#include "cedr.hpp"
+#include "cedr_kokkos.hpp"
+#include "cedr_mpi.hpp"
 
+namespace cedr {
 // QLT: Quasi-local tree-based non-iterative tracer density reconstructor for
 //      mass conservation, shape preservation, and tracer consistency.
 namespace qlt {
-typedef int Int;
-typedef size_t Size;
-typedef double Real;
+using cedr::mpi::Parallel;
 
 namespace impl { class NodeSets; }
-
-class Parallel {
-  MPI_Comm comm_;
-public:
-  typedef std::shared_ptr<Parallel> Ptr;
-  Parallel(MPI_Comm comm) : comm_(comm) {}
-  MPI_Comm comm () const { return comm_; }
-  Int size() const;
-  Int rank() const;
-  Int root () const { return 0; }
-  bool amroot () const { return rank() == root(); }
-};
-
-Parallel::Ptr make_parallel(MPI_Comm comm);
 
 namespace tree {
 // The caller builds a tree of these nodes to pass to QLT.
@@ -47,12 +33,17 @@ struct Node {
   void* reserved;     // For internal use.
   Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(nullptr) {}
 };
+
+// Utility to make a tree over a 1D mesh. For testing, it can be useful to
+// create an imbalanced tree.
+Node::Ptr make_tree_over_1d_mesh(const Parallel::Ptr& p, const Int& ncells,
+                                 const bool imbalanced = false);
 } // namespace tree
 
-template <typename ExeSpace>
+template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
 class QLT {
 public:
-  typedef typename impl::DeviceType<ExeSpace>::type Device;
+  typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
   typedef QLT<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
   
@@ -90,8 +81,8 @@ public:
 
   Int get_num_tracers() const;
 
-  // set_{rho,Q}: Set cell values prior to running the QLT algorithm.
-  //   set_rho must be called before set_Q.
+  // set_{rhom,Qm}: Set cell values prior to running the QLT algorithm.
+  //   set_rhom must be called before set_Qm.
   //   lclcellidx is gci2lci(cellidx).
   //   Notation:
   //     rho: Total density.
@@ -100,31 +91,31 @@ public:
   //      *m: Mass corresponding to the density; results from an integral over a
   //          region, such as a cell.
   KOKKOS_INLINE_FUNCTION
-  void set_rho(const Int& lclcellidx,
-               // Current total mass in this cell.
-               const Real& rhom);
+  void set_rhom(const Int& lclcellidx,
+                // Current total mass in this cell.
+                const Real& rhom);
 
   KOKKOS_INLINE_FUNCTION
-  void set_Q(const Int& lclcellidx, const Int& tracer_idx,
-             // Current tracer mass in this cell.
-             const Real& Qm,
-             // Minimum and maximum permitted tracer mass in this cell.
-             const Real& Qm_min, const Real& Qm_max,
-             // If mass conservation is requested, provide the previous Qm,
-             // which will be summed to give the desired global mass.
-             const Real Qm_prev = -1);
+  void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
+              // Current tracer mass in this cell.
+              const Real& Qm,
+              // Minimum and maximum permitted tracer mass in this cell.
+              const Real& Qm_min, const Real& Qm_max,
+              // If mass conservation is requested, provide the previous Qm,
+              // which will be summed to give the desired global mass.
+              const Real Qm_prev = -1);
 
   // Run the QLT algorithm with the values set by set_{rho,Q}.
   void run();
 
   // Get a cell's tracer mass Qm after the QLT algorithm has run.
   KOKKOS_INLINE_FUNCTION
-  Real get_Q(const Int& lclcellidx, const Int& tracer_idx);
+  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx);
 
 private:
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
-  typedef impl::Const<IntList> ConstIntList;
-  typedef impl::ConstUnmanaged<IntList> ConstUnmanagedIntList;
+  typedef cedr::impl::Const<IntList> ConstIntList;
+  typedef cedr::impl::ConstUnmanaged<IntList> ConstUnmanagedIntList;
 
   static void init(const std::string& name, IntList& d,
                    typename IntList::HostMirror& h, size_t n);
@@ -205,7 +196,7 @@ private:
 
   struct BulkData {
     typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
-    typedef impl::Unmanaged<RealList> UnmanagedRealList;
+    typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
 
     UnmanagedRealList l2r_data, r2l_data;
 
@@ -242,17 +233,18 @@ private:
 
 namespace test {
 struct Input {
-  bool unittest, write;
+  bool unittest, perftest, write;
   Int ncells, ntracers, tracer_type, nrepeat;
   bool pseudorandom, verbose;
 };
 
-Int run(const Parallel::Ptr& p, const Input& in);
+Int run_unit_and_randomized_tests(const Parallel::Ptr& p, const Input& in);
 } // namespace test
 } // namespace qlt
+} // namespace cedr
 
 // These are the definitions that must be visible in the calling translation
 // unit, unless Cuda relocatable device code is enabled.
-#include "qlt_inline.hpp"
+#include "cedr_qlt_inl.hpp"
 
 #endif
