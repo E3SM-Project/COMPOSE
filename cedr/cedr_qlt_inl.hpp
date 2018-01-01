@@ -105,8 +105,11 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
                            rhom_kids,
                            Qm - (lo ? Qm_min : Qm_max));
     } else {
-      // Quick exit if everything is OK as is.
-      if (Qm == pd[1] && // Was our total tracer mass wasn't adjusted?
+      // Quick exit if everything is OK as is. This is a speedup, and it also
+      // lets the subnode solver make ~1 ulp changes instead of having to keep x
+      // = y if y satisfies the conditions. Without this block, the
+      // no_change_should_hold tests can fail.
+      if (Qm == pd[1] && // Was our total tracer mass adjusted?
           // Are the kids' problems feasible?
           Qm_orig_kids[0] >= Qm_min_kids[0] && Qm_orig_kids[0] <= Qm_max_kids[0] &&
           Qm_orig_kids[1] >= Qm_min_kids[1] && Qm_orig_kids[1] <= Qm_max_kids[1]) {
@@ -122,8 +125,8 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
     static const Real ones[] = {1, 1};
     const Real w[] = {1/rhom0, 1/rhom1};
     Real Qm_kids[2] = {k0d[1], k1d[1]};
-    local::solve_1eq_bc_qp(2, w, ones, Qm, Qm_min_kids, Qm_max_kids,
-                           Qm_orig_kids, Qm_kids);
+    local::solve_1eq_bc_qp_2d(w, ones, Qm, Qm_min_kids, Qm_max_kids,
+                              Qm_orig_kids, Qm_kids);
     Qm0 = Qm_kids[0];
     Qm1 = Qm_kids[1];
   }

@@ -6,121 +6,36 @@
 namespace cedr {
 namespace local {
 
-KOKKOS_INLINE_FUNCTION
-bool is_inside (const Real xi, const Real* xlo, const Real* xhi, const Int i) {
-  return (xi > xlo[i] && xi < xhi[i]);
-}
-
-KOKKOS_INLINE_FUNCTION
-bool is_outside (const Real xi, const Real* xlo, const Real* xhi, const Int i) {
-  return (xi < xlo[i] || xi > xhi[i]);
-}
-
-template <typename T>
-KOKKOS_INLINE_FUNCTION
-void sort4 (T* x) {
-  T buf[4];
-  for (Int i = 0; i < 2; ++i) {
-    const Int j = 2*i;
-    if (x[j] <= x[j+1]) { buf[j] = x[j]; buf[j+1] = x[j+1]; }
-    else                { buf[j] = x[j+1]; buf[j+1] = x[j]; }
-  }
-  Int p0 = 0, p1 = 2;
-  for (Int i = 0; i < 4; ++i)
-    x[i] = (p1 >= 4 || (p0 < 2 && buf[p0] <= buf[p1]) ?
-            buf[p0++] :
-            buf[p1++]);
-  cedr_assert(p0 == 2 && p1 == 4);
-}
-
-// 2D special case for efficiency.
-KOKKOS_INLINE_FUNCTION
-Int solve_1eq_bc_qp_2d (const Int n, const Real* w, const Real* a, const Real b,
-                        const Real* xlo, const Real* xhi, 
-                        const Real* y, Real* x) {
-  cedr_assert(n == 2);
-
-  { // Check if the optimal point ignoring bound constraints is in bounds.
-    Real q[2], qsum = 0;
-    for (int i = 0; i < 2; ++i) {
-      q[i] = a[i]/w[i];
-      qsum += q[i];
-    }
-    Real dm = b;
-    for (int i = 0; i < 2; ++i)
-      dm -= a[i]*y[i];
-    bool good = true;
-    for (int i = 0; i < 2; ++i) {
-      x[i] = y[i] + dm*(q[i]/qsum);
-      if (is_outside(x[i], xlo, xhi, i)) {
-        good = false;
-        break;
-      }
-    }
-    if (good) return dm == 0 ? 0 : 1;
-  }
-
-  // Solve for intersection of a'x = b, given by the parameterized line
-  //     p(alpa) = x_base + alpha x_dir,
-  // with a bounding line.
-
-  // Get parameterized line.
-  Real x_base[2];
-  for (int i = 0; i < 2; ++i)
-    x_base[i] = 0.5*b/a[i];
-  Real x_dir[] = {-a[1], a[0]};
-
-  // Get the 4 alpha values.
-  struct Alpha {
-    Real alpha;
-    Int side;
-    bool operator<= (const Alpha& a) const { return alpha <= a.alpha; }
-  };
-  Alpha alphas[4];
-  auto set_alpha = [&] (const Real* xbd, const Int& idx, const Int& side) {
-    alphas[side].alpha = (xbd[idx] - x_base[idx])/x_dir[idx];
-    alphas[side].side = side;
-  };
-  set_alpha(xlo, 1, 0); // bottom
-  set_alpha(xhi, 0, 1); // right
-  set_alpha(xhi, 1, 2); // top
-  set_alpha(xlo, 0, 3); // left
-
-  // Sort alphas. The middle two bound the feasible interval.
-  sort4(alphas);
-
-  // Eval the middle two and record the better of the them.
-  auto eval_xi = [&] (const Real& alpha, const Int& idx) {
-    return x_base[idx] + alpha*x_dir[idx];
-  };
-  auto eval_obj = [&] (const Real& alpha) {
-    Real obj = 0;
-    for (Int i = 0; i < 2; ++i) {
-      x[i] = eval_xi(alpha, i);
-      obj += w[i]*cedr::util::square(y[i] - x[i]);
-    }
-    return obj;
-  };
-  const Int ai = eval_obj(alphas[1].alpha) <= eval_obj(alphas[2].alpha) ? 1 : 2;
-
-  Int info = 1, clipidx = 0;
-  const auto& aai = alphas[ai];
-  switch (aai.side) {
-  case 0: x[0] = eval_xi(aai.alpha, 0); x[1] = xlo[1]; clipidx = 0; break;
-  case 1: x[0] = xhi[0]; x[1] = eval_xi(aai.alpha, 1); clipidx = 1; break;
-  case 2: x[0] = eval_xi(aai.alpha, 0); x[1] = xhi[1]; clipidx = 0; break;
-  case 3: x[0] = xlo[0]; x[1] = eval_xi(aai.alpha, 1); clipidx = 1; break;
-  default: cedr_assert(0); info = -2;
-  }
-  x[clipidx] = cedr::impl::min(xhi[clipidx], cedr::impl::max(xlo[clipidx], x[clipidx]));
-  return info;
-}
-
+namespace impl {
 KOKKOS_INLINE_FUNCTION
 Real calc_r_tol (const Real b, const Real* a, const Real* y, const Int n) {
   Real ab = std::abs(b);
   for (Int i = 0; i < n; ++i) ab = std::max(ab, std::abs(a[i]*y[i]));
   return 1e1*std::numeric_limits<Real>::epsilon()*std::abs(ab);
+}
+
+// Eval r at end points to check for feasibility, and also possibly a quick exit
+// on a common case. Return -1 if infeasible, 1 if a corner is a solution, 0 if
+// feasible and a corner is not.
+KOKKOS_INLINE_FUNCTION
+Int check_lu (const Int n, const Real* a, const Real& b,
+              const Real* xlo, const Real* xhi, const Real* y, const Real& r_tol,
+              Real* x) {
+  Real r = -b;
+  for (Int i = 0; i < n; ++i) {
+    x[i] = xlo[i];
+    r += a[i]*x[i];
+  }
+  if (std::abs(r) <= r_tol) return 1;
+  if (r > 0) return -1;
+  r = -b;
+  for (Int i = 0; i < n; ++i) {
+    x[i] = xhi[i];
+    r += a[i]*x[i];
+  }
+  if (std::abs(r) <= r_tol) return 1;
+  if (r < 0) return -1;
+  return 0;
 }
 
 KOKKOS_INLINE_FUNCTION
@@ -145,24 +60,126 @@ void calc_r (const Int n, const Real* w, const Real* a, const Real b,
   }
   r -= b;
 }
+} // namespace impl
+
+// 2D special case for efficiency.
+KOKKOS_INLINE_FUNCTION
+Int solve_1eq_bc_qp_2d (const Real* w, const Real* a, const Real b,
+                        const Real* xlo, const Real* xhi, 
+                        const Real* y, Real* x) {
+  const Real r_tol = impl::calc_r_tol(b, a, y, 2);
+  Int info = impl::check_lu(2, a, b, xlo, xhi, y, r_tol, x);
+  if (info != 0) return info;
+
+  { // Check if the optimal point ignoring bound constraints is in bounds.
+    Real qsum = 0, dm = b;
+    for (int i = 0; i < 2; ++i) {
+      qsum += a[i]/w[i];
+      dm -= a[i]*y[i];
+    }
+    const Real fac = dm/qsum;
+    bool ok = true;
+    for (int i = 0; i < 2; ++i) {
+      x[i] = y[i] + fac*(a[i]/w[i]);
+      if (x[i] < xlo[i] || x[i] > xhi[i]) {
+        // Could be out due to numerics.
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return 1;
+  }
+
+  // Solve for intersection of a'x = b, given by the parameterized line
+  //     p(alpa) = x_base + alpha x_dir,
+  // with a bounding line.
+
+  // Get parameterized line.
+  Real x_base[2];
+  for (int i = 0; i < 2; ++i)
+    x_base[i] = 0.5*b/a[i];
+  Real x_dir[] = {-a[1], a[0]};
+
+  // Get the 4 alpha values.
+  Real alphas[4];
+  alphas[0] = (xlo[1] - x_base[1])/x_dir[1]; // bottom
+  alphas[1] = (xhi[0] - x_base[0])/x_dir[0]; // right
+  alphas[2] = (xhi[1] - x_base[1])/x_dir[1]; // top
+  alphas[3] = (xlo[0] - x_base[0])/x_dir[0]; // left
+
+  // Find the middle two in the sorted alphas.
+  Real min = alphas[0], max = min;
+  Int imin = 0, imax = 0;
+  for (Int i = 1; i < 4; ++i) {
+    const Real alpha = alphas[i];
+    if (alpha < min) { min = alpha; imin = i; }
+    if (alpha > max) { max = alpha; imax = i; }
+  }
+  Int ais[2];
+  Int cnt = 0;
+  for (Int i = 0; i < 4; ++i)
+    if (i != imin && i != imax) {
+      ais[cnt++] = i;
+      if (cnt == 2) break;
+    }
+
+  Real objs[2];
+  Real alpha_mid = 0;
+  for (Int j = 0; j < 2; ++j) {
+    const Real alpha = alphas[ais[j]];
+    alpha_mid += alpha;
+    Real obj = 0;
+    for (Int i = 0; i < 2; ++i) {
+      x[i] = x_base[i] + alpha*x_dir[i];
+      obj += w[i]*cedr::util::square(y[i] - x[i]);
+    }
+    objs[j] = obj;
+  }
+
+  const Int ai = ais[objs[0] <= objs[1] ? 0 : 1];
+
+  info = 1;
+  Int clipidx = 0;
+  const Real alpha = alphas[ai];
+  switch (ai) {
+  case 0: case 2:
+    x[0] = x_base[0] + alpha*x_dir[0];
+    x[1] = ai == 0 ? xlo[1] : xhi[1];
+    clipidx = 0;
+    break;
+  case 1: case 3:
+    x[0] = ai == 1 ? xhi[0] : xlo[0];
+    x[1] = x_base[1] + alpha*x_dir[1];
+    clipidx = 1;
+    break;
+  default: cedr_assert(0); info = -2;
+  }
+  x[clipidx] = cedr::impl::min(xhi[clipidx], cedr::impl::max(xlo[clipidx], x[clipidx]));
+  return info;
+}
 
 KOKKOS_INLINE_FUNCTION
 Int solve_1eq_bc_qp (const Int n, const Real* w, const Real* a, const Real b,
                      const Real* xlo, const Real* xhi, const Real* y, Real* x,
                      const Int max_its) {
-  const Real r_tol = calc_r_tol(b, a, y, n);
-  Int info;
+  const Real r_tol = impl::calc_r_tol(b, a, y, n);
+  Int info = impl::check_lu(n, a, b, xlo, xhi, y, r_tol, x);
+  if (info != 0) return info;
 
+  for (int i = 0; i < n; ++i)
+    if (x[i] != y[i]) {
+      info = 1;
+      x[i] = y[i];
+    }
+
+  // In our use case, the caller has already checked (more cheaply) for a quick
+  // exit.
+#if 0
   { // Check for a quick exit.
     bool all_in = true;
     Real r = 0;
-    info = 0;
     for (Int i = 0; i < n; ++i) {
-      if (x[i] != y[i]) {
-        x[i] = y[i];
-        info = 1;
-      }
-      if (is_outside(x[i], xlo, xhi, i)) {
+      if (x[i] < xlo[i] || x[i] > xhi[i]) {
         all_in = false;
         break;
       }
@@ -174,37 +191,7 @@ Int solve_1eq_bc_qp (const Int n, const Real* w, const Real* a, const Real b,
         return info;
     }
   }
-
-  if (n == 2)
-    return solve_1eq_bc_qp_2d(n, w, a, b, xlo, xhi, y, x);
-
-  { // Eval r at end points to check for feasibility, and also possibly a quick
-    // exit on a common case.
-    Real r = -b;
-    for (Int i = 0; i < n; ++i) {
-      x[i] = xlo[i];
-      r += a[i]*x[i];
-    }
-    if (std::abs(r) <= r_tol) return 1;
-    if (r > 0) return -1;
-    r = -b;
-    for (Int i = 0; i < n; ++i) {
-      x[i] = xhi[i];
-      r += a[i]*x[i];
-    }
-    if (std::abs(r) <= r_tol) return 1;
-    if (r < 0) return -1;
-  }
-
-  { // Check for a quick exit: the bounds are so tight that the midpoint of the
-    // box satisfies r_tol.
-    Real r = -b;
-    for (Int i = 0; i < n; ++i) {
-      x[i] = 0.5*(xlo[i] + xhi[i]);
-      r += a[i]*x[i];
-    }
-    if (std::abs(r) <= r_tol) return 1;
-  }
+#endif
 
   const Real wall_dist = 1e-3;
 
@@ -218,8 +205,8 @@ Int solve_1eq_bc_qp (const Int n, const Real* w, const Real* a, const Real b,
       lamlo = lamlo_i;
       lamhi = lamhi_i;
     } else {
-      lamlo = impl::min(lamlo, lamlo_i);
-      lamhi = impl::max(lamhi, lamhi_i);
+      lamlo = cedr::impl::min(lamlo, lamlo_i);
+      lamhi = cedr::impl::max(lamhi, lamhi_i);
     }
   }
   const Real lamlo_feas = lamlo, lamhi_feas = lamhi;
@@ -232,7 +219,7 @@ Int solve_1eq_bc_qp (const Int n, const Real* w, const Real* a, const Real b,
   for (Int iteration = 0; iteration < max_its; ++iteration) {
     // Compute x, r, r_lambda.
     Real r, r_lambda;
-    calc_r(n, w, a, b, xlo, xhi, y, lambda, x, r, r_lambda);
+    impl::calc_r(n, w, a, b, xlo, xhi, y, lambda, x, r, r_lambda);
     // Is r(lambda) - b sufficiently == 0?
     if (std::abs(r) <= r_tol) {
       info = 1;

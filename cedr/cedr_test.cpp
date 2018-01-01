@@ -81,6 +81,8 @@ int main (int argc, char** argv) {
   try {
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
+    if (inp.qin.unittest)
+      ret += cedr::local::unittest();
     if (inp.qin.unittest || inp.qin.perftest)
       ret += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);
     if (inp.tin.ncells > 0)
