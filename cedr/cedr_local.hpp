@@ -25,6 +25,12 @@ Int solve_1eq_bc_qp_2d(const Real* w, const Real* a, const Real b,
                        const Real* xlo, const Real* xhi,
                        const Real* y, Real* x);
 
+// ClipAndAssuredSum. Does not check for feasibility.
+KOKKOS_INLINE_FUNCTION
+void caas(const Int n, const Real* a, const Real b,
+          const Real* xlo, const Real* xhi,
+          const Real* y, Real* x);
+
 Int unittest();
 
 }

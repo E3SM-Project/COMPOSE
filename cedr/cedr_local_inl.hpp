@@ -72,17 +72,17 @@ Int solve_1eq_bc_qp_2d (const Real* w, const Real* a, const Real b,
   if (info != 0) return info;
 
   { // Check if the optimal point ignoring bound constraints is in bounds.
-    Real qsum = 0, dm = b;
+    Real qmass = 0, dm = b;
     for (int i = 0; i < 2; ++i) {
-      qsum += a[i]/w[i];
+      const Real qi = a[i]/w[i];
+      qmass += a[i]*qi;
       dm -= a[i]*y[i];
     }
-    const Real fac = dm/qsum;
+    const Real lambda = dm/qmass;
     bool ok = true;
     for (int i = 0; i < 2; ++i) {
-      x[i] = y[i] + fac*(a[i]/w[i]);
+      x[i] = y[i] + lambda*(a[i]/w[i]);
       if (x[i] < xlo[i] || x[i] > xhi[i]) {
-        // Could be out due to numerics.
         ok = false;
         break;
       }
@@ -261,6 +261,40 @@ Int solve_1eq_bc_qp (const Int n, const Real* w, const Real* a, const Real b,
   }
 
   return info;
+}
+
+KOKKOS_INLINE_FUNCTION
+void caas (const Int n, const Real* a, const Real b,
+           const Real* xlo, const Real* xhi,
+           const Real* y, Real* x) {
+  Real dm = b;
+  for (Int i = 0; i < n; ++i) {
+    x[i] = cedr::impl::max(xlo[i], cedr::impl::min(xhi[i], y[i]));
+    dm -= a[i]*x[i];
+  }
+  if (dm == 0) return;
+  if (dm > 0) {
+    Real fac = 0;
+    for (Int i = 0; i < n; ++i)
+      fac += a[i]*(xhi[i] - x[i]);
+    if (fac > 0) {
+      fac = dm/fac;
+      for (Int i = 0; i < n; ++i)
+        x[i] += fac*(xhi[i] - x[i]);
+    }
+  } else if (dm < 0) {
+    Real fac = 0;
+    for (Int i = 0; i < n; ++i)
+      fac += a[i]*(x[i] - xlo[i]);
+    if (fac > 0) {
+      fac = dm/fac;
+      for (Int i = 0; i < n; ++i)
+        x[i] += fac*(x[i] - xlo[i]);
+    }
+  }
+  // Clip again for numerics.
+  for (Int i = 0; i < n; ++i)
+    x[i] = cedr::impl::max(xlo[i], cedr::impl::min(xhi[i], x[i]));
 }
 
 } // namespace local

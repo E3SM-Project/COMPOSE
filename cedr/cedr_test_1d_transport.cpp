@@ -38,7 +38,9 @@ void cubic_interp_periodic (
   Int* const dod)
 {
   const int nc = nx - 1;
+#ifdef _OPENMP
 # pragma omp parallel for
+#endif
   for (Int j = 0; j < nxi; ++j) {
     const Real xi_per = to_periodic_core(x[0], x[nc], xi[j]);
     Int ip1 = std::upper_bound(x, x + nx, xi_per) - x;

@@ -3,7 +3,7 @@
 
 namespace cedr {
 namespace local {
-
+namespace test {
 // Check the first-order optimality conditions. Return true if OK, false
 // otherwise. If quiet, don't print anything.
 bool check_1eq_bc_qp_foc (
@@ -65,7 +65,7 @@ bool check_1eq_bc_qp_foc (
   }
   normy = std::sqrt(normy);
   normg = std::sqrt(normg);
-  const Real gtol = 1e2*std::numeric_limits<Real>::epsilon()*normy;
+  const Real gtol = 1e4*std::numeric_limits<Real>::epsilon()*normy;
   if (normg > gtol) {
     if (verbose)
       os << "norm(g) = " << normg << " gtol = " << gtol << "\n";
@@ -92,6 +92,7 @@ bool check_1eq_bc_qp_foc (
     os << "label: " << label << "\n";
   return ok;
 }
+} // namespace test
 
 Int unittest () {
   bool verbose = true;
@@ -103,6 +104,10 @@ Int unittest () {
 
   auto run = [&] () {
     const Int info = solve_1eq_bc_qp(n, w, a, b, xlo, xhi, y, x);
+    const bool ok = test::check_1eq_bc_qp_foc(
+      "unittest", n, w, a, b, xlo, xhi, y, x, verbose);
+    if ( ! ok) ++nerr;
+
     if (n == 2) {
       // This version never returns 0.
       Real x2[2];
@@ -112,25 +117,38 @@ Int unittest () {
         ++nerr;
       }
       const Real rd = cedr::util::reldif(x, x2, 2);
-      if (rd > 10*std::numeric_limits<Real>::epsilon()) {
+      if (rd > 1e2*std::numeric_limits<Real>::epsilon()) {
         if (verbose)
-          printf("%1.1e | %1.15e %1.15e | %1.15e %1.15e | %1.15e %1.15e\n",
-                 rd, y[0], y[1], x[0], x[1], x2[0], x2[1]);
+          printf("%1.1e | y %1.15e %1.15e | x %1.15e %1.15e | "
+                 "x2 %1.15e %1.15e | l %1.15e %1.15e | u %1.15e %1.15e\n",
+                 rd, y[0], y[1], x[0], x[1], x2[0], x2[1],
+                 xlo[0], xlo[1], xhi[0], xhi[1]);
         ++nerr;
       }
     }
-    const bool ok = check_1eq_bc_qp_foc("unittest", n, w, a, b, xlo, xhi, y, x,
-                                        verbose);
-    if ( ! ok) ++nerr;
+
+    caas(n, a, b, xlo, xhi, y, x);
+    Real m = 0, den = 0;
+    for (Int i = 0; i < n; ++i) {
+      m += a[i]*x[i];
+      den += std::abs(a[i]*x[i]);
+      if (x[i] < xlo[i]) ++nerr;
+      else if (x[i] > xhi[i]) ++nerr;
+    }
+    const Real rd = std::abs(b - m)/den;
+    if (rd > 1e3*std::numeric_limits<Real>::epsilon()) {
+      if (verbose) pr(puf(rd) pu(n) pu(b) pu(m));
+      ++nerr;
+    }
   };
 
   auto gena = [&] () {
     for (Int i = 0; i < n; ++i)
-      a[i] = 1;//0.1 + cedr::util::urand();
+      a[i] = 0.1 + cedr::util::urand();
   };
   auto genw = [&] () {
     for (Int i = 0; i < n; ++i)
-      w[i] = 1;//0.1 + cedr::util::urand();
+      w[i] = 0.1 + cedr::util::urand();
   };
   auto genbnds = [&] () {
     al = au = 0;

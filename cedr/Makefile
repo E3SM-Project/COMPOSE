@@ -23,3 +23,4 @@ clean:
 cedr_qlt.o: cedr_mpi.hpp cedr_mpi_inl.hpp cedr_local.hpp cedr_local_inl.hpp \
 	cedr_qlt.hpp cedr_qlt_inl.hpp cedr_kokkos.hpp cedr_util.hpp
 cedr_test.o: cedr_qlt.hpp cedr_util.hpp
+cedr_local.o: cedr_local_inl.hpp

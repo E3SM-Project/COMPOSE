@@ -73,7 +73,7 @@ struct InputParser {
 } // namespace cedr
 
 int main (int argc, char** argv) {
-  int ret = 0;
+  int nerr = 0;
   MPI_Init(&argc, &argv);
   auto p = cedr::mpi::make_parallel(MPI_COMM_WORLD);
   srand(p->rank());
@@ -82,17 +82,18 @@ int main (int argc, char** argv) {
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
     if (inp.qin.unittest)
-      ret += cedr::local::unittest();
+      nerr += cedr::local::unittest();
     if (inp.qin.unittest || inp.qin.perftest)
-      ret += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);
+      nerr += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);
     if (inp.tin.ncells > 0)
-      ret += cedr::test::transport1d::run(p, inp.tin);
-    if (p->amroot()) std::cout << (ret != 0 ? "FAIL" : "PASS") << "\n";
+      nerr += cedr::test::transport1d::run(p, inp.tin);
+    if (p->amroot()) std::cout << (nerr != 0 ? "FAIL" : "PASS") << "\n";
   } catch (const std::exception& e) {
     if (p->amroot())
       std::cerr << e.what();
   }
   Kokkos::finalize_all();
+  if (nerr) prc(nerr);
   MPI_Finalize();
-  return ret;
+  return 0;
 }
