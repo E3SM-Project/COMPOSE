@@ -117,7 +117,7 @@ Int unittest () {
         ++nerr;
       }
       const Real rd = cedr::util::reldif(x, x2, 2);
-      if (rd > 1e2*std::numeric_limits<Real>::epsilon()) {
+      if (rd > 1e4*std::numeric_limits<Real>::epsilon()) {
         if (verbose)
           printf("%1.1e | y %1.15e %1.15e | x %1.15e %1.15e | "
                  "x2 %1.15e %1.15e | l %1.15e %1.15e | u %1.15e %1.15e\n",

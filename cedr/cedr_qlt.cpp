@@ -1213,7 +1213,7 @@ private:
 
   static Int check (const Parallel& p, const std::vector<Tracer>& ts, const Values& v) {
     static const bool details = true;
-    static const Real ulp2 = 2*std::numeric_limits<Real>::epsilon();
+    static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
     Int nerr = 0;
     std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
     std::vector<Int> t_ok(ts.size(), 1), local_violated(ts.size(), 0);
@@ -1229,12 +1229,11 @@ private:
       q_min_lcl[ti] = 1;
       q_max_lcl[ti] = 0;
       for (Int i = 0; i < n; ++i) {
-        // I believe this should hold exactly, but at least once I saw a single
-        // bit difference. Relax to 2 ulp and think more.
-        const bool lv = (Qm[i] < Qm_min[i]*(1 - ulp2) ||
-                         Qm[i] > Qm_max[i]*(1 + ulp2));
+        const bool lv = (Qm[i] < Qm_min[i] || Qm[i] > Qm_max[i]);
         if (lv) local_violated[ti] = 1;
         if ( ! safe_only && lv) {
+          // If this fails at ~ machine eps, check r2l_nl_adjust_bounds code in
+          // solve_node_problem.
           if (details)
             pr("check q " << t.str() << ": " << Qm[i] << " " <<
                (Qm[i] < Qm_min[i] ? Qm[i] - Qm_min[i] : Qm[i] - Qm_max[i]));
@@ -1271,8 +1270,8 @@ private:
           * Qm_max = v.Qm_max(t.idx);
         const Real q_min = q_min_gbl[ti], q_max = q_max_gbl[ti];
         for (Int i = 0; i < n; ++i) {
-          if (Qm[i] < q_min*rhom[i]*(1 - ulp2) ||
-              Qm[i] > q_max*rhom[i]*(1 + ulp2)) {
+          if (Qm[i] < q_min*rhom[i]*(1 - ulp3) ||
+              Qm[i] > q_max*rhom[i]*(1 + ulp3)) {
             if (details)
               pr("check q " << t.str() << ": " << q_min*rhom[i] << " " << Qm_min[i] <<
                  " " << Qm[i] << " " << Qm_max[i] << " " << q_max*rhom[i] << " | " <<

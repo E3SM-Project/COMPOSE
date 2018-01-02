@@ -100,10 +100,15 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
     const Real Qm_min = pd[0], Qm_max = pd[2];
     const bool lo = Qm < Qm_min, hi = Qm > Qm_max;
     if (lo || hi) {
-      const Real rhom_kids[] = {rhom0, rhom1};
-      r2l_nl_adjust_bounds(lo ? Qm_min_kids : Qm_max_kids,
-                           rhom_kids,
-                           Qm - (lo ? Qm_min : Qm_max));
+      // If the discrepancy is numerical noise, don't act on it.
+      const Real tol = 10*std::numeric_limits<Real>::epsilon();
+      const Real discrepancy = lo ? Qm_min - Qm : Qm - Qm_max;
+      if (discrepancy > tol*Qm_max) {
+        const Real rhom_kids[] = {rhom0, rhom1};
+        r2l_nl_adjust_bounds(lo ? Qm_min_kids : Qm_max_kids,
+                             rhom_kids,
+                             Qm - (lo ? Qm_min : Qm_max));
+      }
     } else {
       // Quick exit if everything is OK as is. This is a speedup, and it also
       // lets the subnode solver make ~1 ulp changes instead of having to keep x

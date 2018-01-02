@@ -87,7 +87,12 @@ int main (int argc, char** argv) {
       nerr += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);
     if (inp.tin.ncells > 0)
       nerr += cedr::test::transport1d::run(p, inp.tin);
-    if (p->amroot()) std::cout << (nerr != 0 ? "FAIL" : "PASS") << "\n";
+    {
+      int gnerr;
+      cedr::mpi::reduce(*p, &nerr, &gnerr, 1, MPI_SUM, p->root());
+      if (p->amroot())
+        std::cout << (gnerr != 0 ? "FAIL" : "PASS") << "\n";
+    }
   } catch (const std::exception& e) {
     if (p->amroot())
       std::cerr << e.what();
