@@ -269,8 +269,8 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
                                                 true /* imbalanced */);
   typedef qlt::QLT<Kokkos::DefaultHostExecutionSpace> QLTT;
   QLTT qlt(parallel, in.ncells, tree);
-  qlt.declare_tracer(QLTT::ProblemType::conserve |
-                     QLTT::ProblemType::shapepreserve);
+  qlt.declare_tracer(cedr::ProblemType::conserve |
+                     cedr::ProblemType::shapepreserve);
   qlt.end_tracer_declarations();
   for (Int i = 0; i < in.ncells; ++i)
     qlt.set_rhom(i, p.area(i));

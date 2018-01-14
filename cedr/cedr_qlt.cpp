@@ -1,4 +1,5 @@
 #include "cedr_qlt.hpp"
+#include "cedr_test_randomized.hpp"
 
 #include <sys/time.h>
 
@@ -15,8 +16,7 @@ namespace qlt {
 
 class Timer {
 public:
-  enum Op { tree, analyze, trcrinit, trcrgen, trcrcheck,
-            qltrun, qltrunl2r, qltrunr2l, snp, waitall,
+  enum Op { tree, analyze, qltrun, qltrunl2r, qltrunr2l, snp, waitall,
             total, NTIMERS };
   static inline void init () {
 #ifdef QLT_TIME
@@ -55,7 +55,6 @@ public:
 #ifdef QLT_TIME
     const double tot = et_[total];
     tpr(tree); tpr(analyze);
-    tpr(trcrinit); tpr(trcrgen); tpr(trcrcheck);
     tpr(qltrun); tpr(qltrunl2r); tpr(qltrunr2l); tpr(snp); tpr(waitall);
     printf("%-20s %10.3e %10.1f\n", "total", tot, 100.0);
 #endif
@@ -851,85 +850,29 @@ constexpr Int QLT<ES>::MetaData::problem_type_[];
 namespace test {
 using namespace impl;
 
-class TestQLT {
+class TestQLT : public cedr::test::TestRandomized {
+public:
   typedef QLT<Kokkos::DefaultExecutionSpace> QLTT;
-  typedef Kokkos::View<Real**, QLTT::Device> R2D;
 
-  struct Tracer {
-    typedef QLTT::ProblemType PT;
-    
-    Int idx;
-    Int problem_type;
-    Int perturbation_type;
-    bool no_change_should_hold, safe_should_hold, local_should_hold;
-    bool write;
-
-    std::string str () const {
-      std::stringstream ss;
-      ss << "(ti " << idx;
-      if (problem_type & PT::conserve) ss << " c";
-      if (problem_type & PT::shapepreserve) ss << " s";
-      if (problem_type & PT::consistent) ss << " t";
-      ss << " pt " << perturbation_type << " ssh " << safe_should_hold
-         << " lsh " << local_should_hold << ")";
-      return ss.str();
-    }
-
-    Tracer ()
-      : idx(-1), problem_type(-1), perturbation_type(-1), no_change_should_hold(false),
-        safe_should_hold(true), local_should_hold(true), write(false)
-    {}
-  };
-
-  struct Values {
-    Values (const Int ntracers, const Int ncells)
-      : ncells_(ncells), v_((4*ntracers + 1)*ncells)
-    {}
-    Int ncells () const { return ncells_; }
-    Real* rhom () { return v_.data(); }
-    Real* Qm_min  (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti    ); }
-    Real* Qm      (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 1); }
-    Real* Qm_max  (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 2); }
-    Real* Qm_prev (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 3); }
-    const Real* rhom () const { return const_cast<Values*>(this)->rhom(); }
-    const Real* Qm_min  (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_min (ti); }
-    const Real* Qm      (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm     (ti); }
-    const Real* Qm_max  (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_max (ti); }
-    const Real* Qm_prev (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_prev(ti); }
-  private:
-    Int ncells_;
-    std::vector<Real> v_;
-  };
-
-  // For solution output, if requested.
-  struct Writer {
-    std::unique_ptr<FILE, cedr::util::FILECloser> fh;
-    std::vector<Int> ngcis;  // Number of i'th rank's gcis_ array.
-    std::vector<int> displs; // Cumsum of above.
-    std::vector<Int> gcis;   // Global cell indices packed by rank's gcis_ vector.
-    ~Writer () {
-      if ( ! fh) return;
-      fprintf(fh.get(), "  return s\n");
-    }
-  };
+  TestQLT (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
+           const Int& ncells, const bool verbose=false)
+    : TestRandomized(p, ncells, verbose), qlt_(p, ncells, tree), tree_(tree)
+  {
+    if (verbose) qlt_.print(std::cout);
+    init();
+  }
 
 private:
-  const Parallel::Ptr p_;
-  const Int ncells_;
   QLTT qlt_;
-  // Caller index (local cell index in the app code) -> QLT lclcellidx.
-  std::vector<Int> gcis_, i2lci_;
-  std::vector<Tracer> tracers_;
-  // For optional output.
-  bool write_inited_;
-  std::shared_ptr<Writer> w_; // Only on root.
+  tree::Node::Ptr tree_;
+  std::vector<Int> i2lci_;
 
-private:
+  void init_numbering () override {
+    init_numbering(tree_);
+  }
+
   void init_numbering (const tree::Node::Ptr& node) {
+    check(qlt_);
     // TestQLT doesn't actually care about a particular ordering, as there is no
     // geometry to the test problem. However, use *some* ordering to model what
     // a real problem must do.
@@ -944,264 +887,6 @@ private:
       init_numbering(node->kids[i]);
   }
 
-  void init_tracers () {
-    Timer::start(Timer::trcrinit);
-    typedef Tracer::PT PT;
-    static const Int pts[] = {
-      PT::conserve | PT::shapepreserve | PT::consistent,
-      PT::shapepreserve, // Test a noncanonical problem type.
-      PT::conserve | PT::consistent,
-      PT::consistent
-    };
-    Int tracer_idx = 0;
-    for (Int perturb = 0; perturb < 6; ++perturb)
-      for (Int ti = 0; ti < 4; ++ti) {
-        Tracer t;
-        t.problem_type = pts[ti];
-        const bool shapepreserve = t.problem_type & PT::shapepreserve;
-        t.idx = tracer_idx++;
-        t.perturbation_type = perturb;
-        t.safe_should_hold = true;
-        t.no_change_should_hold = perturb == 0;
-        t.local_should_hold = perturb < 4 && shapepreserve;
-        t.write = perturb == 2 && ti == 2;
-        tracers_.push_back(t);
-        qlt_.declare_tracer(t.problem_type);
-      }
-    qlt_.end_tracer_declarations();
-    cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
-    for (size_t i = 0; i < tracers_.size(); ++i)
-      cedr_assert(qlt_.get_problem_type(i) == (tracers_[i].problem_type |
-                                               PT::consistent));
-    Timer::stop(Timer::trcrinit);
-  }
-
-  static Real urand () { return rand() / ((Real) RAND_MAX + 1.0); }
-
-  static void generate_rho (Values& v) {
-    auto r = v.rhom();
-    const Int n = v.ncells();
-    for (Int i = 0; i < n; ++i)
-      r[i] = 0.5 + 1.5*urand();
-  }
-
-  static void generate_Q (const Tracer& t, Values& v) {
-    Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
-      * Qm_max = v.Qm_max(t.idx), * Qm_prev = v.Qm_prev(t.idx);
-    const Int n = v.ncells();
-    for (Int i = 0; i < n; ++i) {
-      const Real
-        q_min = 0.1 + 0.8*urand(),
-        q_max = std::min<Real>(1, q_min + (0.9 - q_min)*urand()),
-        q = q_min + (q_max - q_min)*urand();
-      // Check correctness up to FP.
-      cedr_assert(q_min >= 0 &&
-                  q_max <= 1 + 10*std::numeric_limits<Real>::epsilon() &&
-                  q_min <= q && q <= q_max);
-      Qm_min[i] = q_min*rhom[i];
-      Qm_max[i] = q_max*rhom[i];
-      // Protect against FP error.
-      Qm[i] = std::max<Real>(Qm_min[i], std::min(Qm_max[i], q*rhom[i]));
-      // Set previous Qm to the current unperturbed value.
-      Qm_prev[i] = Qm[i];
-    }
-  }
-
-  static void gen_rand_perm (const size_t n, std::vector<Int>& p) {
-    p.resize(n);
-    for (size_t i = 0; i < n; ++i)
-      p[i] = i;
-    for (size_t i = 0; i < n; ++i) {
-      const int j = urand()*n, k = urand()*n;
-      std::swap(p[j], p[k]);
-    }
-  }
-
-  // Permuting the Qm array, even just on a rank as long as there is > 1 cell,
-  // produces a problem likely requiring considerable reconstruction, which
-  // reconstruction assuredly satisfies the properties. But because this is a
-  // local operation only, it doesn't test the 1 cell/rank case.
-  static void permute_Q (const Tracer& t, Values& v) {
-    Real* const Qm = v.Qm(t.idx);
-    const Int N = v.ncells();
-    std::vector<Int> p;
-    gen_rand_perm(N, p);
-    std::vector<Real> Qm_orig(N);
-    std::copy(Qm, Qm + N, Qm_orig.begin());
-    for (Int i = 0; i < N; ++i)
-      Qm[i] = Qm_orig[p[i]];
-  }
-
-  void add_const_to_Q (const Tracer& t, Values& v,
-                       // Move 0 < alpha <= 1 of the way to the QLT or safety
-                       // feasibility bound.
-                       const Real& alpha,
-                       // Whether the modification should be done in a
-                       // mass-conserving way.
-                       const bool conserve_mass,
-                       // Only safety problem is feasible.
-                       const bool safety_problem) {
-    // Some of these reductions aren't used at present. Might add more test
-    // options later that use them.
-    Real rhom, Qm, Qm_max; {
-      Real Qm_sum_lcl[3] = {0};
-      for (Int i = 0; i < v.ncells(); ++i) {
-        Qm_sum_lcl[0] += v.rhom()[i];
-        Qm_sum_lcl[1] += v.Qm(t.idx)[i];
-        Qm_sum_lcl[2] += v.Qm_max(t.idx)[i];
-      }
-      Real Qm_sum_gbl[3] = {0};
-      mpi::all_reduce(*p_, Qm_sum_lcl, Qm_sum_gbl, 3, MPI_SUM);
-      rhom = Qm_sum_gbl[0]; Qm = Qm_sum_gbl[1]; Qm_max = Qm_sum_gbl[2];
-    }
-    Real Qm_max_safety = 0;
-    if (safety_problem) {
-      Real q_safety_lcl = v.Qm_max(t.idx)[0] / v.rhom()[0];
-      for (Int i = 1; i < v.ncells(); ++i)
-        q_safety_lcl = std::max(q_safety_lcl, v.Qm_max(t.idx)[i] / v.rhom()[i]);
-      Real q_safety_gbl = 0;
-      mpi::all_reduce(*p_, &q_safety_lcl, &q_safety_gbl, 1, MPI_MAX);
-      Qm_max_safety = q_safety_gbl*rhom;
-    }
-    const Real dQm = safety_problem ?
-      ((Qm_max - Qm) + alpha * (Qm_max_safety - Qm_max)) / ncells_ :
-      alpha * (Qm_max - Qm) / ncells_;
-    for (Int i = 0; i < v.ncells(); ++i)
-      v.Qm(t.idx)[i] += dQm;
-    // Now permute Qm so that it's a little more interesting.
-    permute_Q(t, v);
-    // Adjust Qm_prev. Qm_prev is used to test the PT::conserve case, and also
-    // simply to record the correct total mass. The modification above modified
-    // Q's total mass. If conserve_mass, then Qm_prev needs to be made to sum to
-    // the same new mass. If ! conserve_mass, we want Qm_prev to be modified in
-    // an interesting way, so that PT::conserve doesn't trivially undo the mod
-    // that was made above when the root fixes the mass discrepancy.
-    const Real
-      relax = 0.9,
-      dQm_prev = (conserve_mass ? dQm :
-                  (safety_problem ?
-                   ((Qm_max - Qm) + relax*alpha * (Qm_max_safety - Qm_max)) / ncells_ :
-                   relax*alpha * (Qm_max - Qm) / ncells_));
-    for (Int i = 0; i < v.ncells(); ++i)
-      v.Qm_prev(t.idx)[i] += dQm_prev;
-  }
-
-  void perturb_Q (const Tracer& t, Values& v) {
-    // QLT is naturally mass conserving. But if QLT isn't being asked to impose
-    // mass conservation, then the caller better have a conservative
-    // method. Here, we model that by saying that Qm_prev and Qm should sum to
-    // the same mass.
-    const bool cm = ! (t.problem_type & Tracer::PT::conserve);
-    // For the edge cases, we cannot be exactly on the edge and still expect the
-    // q-limit checks to pass to machine precision. Thus, back away from the
-    // edge by an amount that bounds the error in the global mass due to FP,
-    // assuming each cell's mass is O(1).
-    const Real edg = 1 - ncells_*std::numeric_limits<Real>::epsilon();
-    switch (t.perturbation_type) {
-    case 0:
-      // Do nothing, to test that QLT doesn't make any changes if none is
-      // needed.
-      break;
-    case 1: permute_Q(t, v); break;
-    case 2: add_const_to_Q(t, v, 0.5, cm, false); break;
-    case 3: add_const_to_Q(t, v, edg, cm, false); break;
-    case 4: add_const_to_Q(t, v, 0.5, cm, true ); break;
-    case 5: add_const_to_Q(t, v, edg, cm, true ); break;
-    }
-  }
-
-  static std::string get_tracer_name (const Tracer& t) {
-    std::stringstream ss;
-    ss << "t" << t.idx;
-    return ss.str();
-  }
-
-  void init_writer () {
-    if (p_->amroot()) {
-      w_ = std::make_shared<Writer>();
-      w_->fh = std::unique_ptr<FILE, cedr::util::FILECloser>(fopen("out_QLT.py", "w"));
-      int n = gcis_.size();
-      w_->ngcis.resize(p_->size());
-      mpi::gather(*p_, &n, 1, w_->ngcis.data(), 1, p_->root());
-      w_->displs.resize(p_->size() + 1);
-      w_->displs[0] = 0;
-      for (size_t i = 0; i < w_->ngcis.size(); ++i)
-        w_->displs[i+1] = w_->displs[i] + w_->ngcis[i];
-      cedr_assert(w_->displs.back() == ncells_);
-      w_->gcis.resize(ncells_);
-      mpi::gatherv(*p_, gcis_.data(), gcis_.size(), w_->gcis.data(), w_->ngcis.data(),
-                   w_->displs.data(), p_->root());
-    } else {
-      int n = gcis_.size();
-      mpi::gather(*p_, &n, 1, static_cast<int*>(nullptr), 0, p_->root());
-      Int* Inull = nullptr;
-      const int* inull = nullptr;
-      mpi::gatherv(*p_, gcis_.data(), gcis_.size(), Inull, inull, inull, p_->root());
-    }
-    write_inited_ = true;
-  }
-
-  void gather_field (const Real* Qm_lcl, std::vector<Real>& Qm_gbl,
-                     std::vector<Real>& wrk) {
-    if (p_->amroot()) {
-      Qm_gbl.resize(ncells_);
-      wrk.resize(ncells_);
-      mpi::gatherv(*p_, Qm_lcl, gcis_.size(), wrk.data(), w_->ngcis.data(),
-                   w_->displs.data(), p_->root());
-      for (Int i = 0; i < ncells_; ++i)
-        Qm_gbl[w_->gcis[i]] = wrk[i];
-    } else {
-      Real* rnull = nullptr;
-      const int* inull = nullptr;
-      mpi::gatherv(*p_, Qm_lcl, gcis_.size(), rnull, inull, inull, p_->root());
-    }
-  }
-
-  void write_field (const std::string& tracer_name, const std::string& field_name,
-                    const std::vector<Real>& Qm) {
-    if ( ! p_->amroot()) return;
-    fprintf(w_->fh.get(), "  s.%s.%s = [", tracer_name.c_str(), field_name.c_str());
-    for (const auto& e : Qm)
-      fprintf(w_->fh.get(), "%1.15e, ", e);
-    fprintf(w_->fh.get(), "]\n");
-  }
-
-  void write_pre (const Tracer& t, Values& v) {
-    if ( ! t.write) return;
-    std::vector<Real> f, wrk;
-    if ( ! write_inited_) {
-      init_writer();
-      if (w_)
-        fprintf(w_->fh.get(),
-                "def getsolns():\n"
-                "  class Struct:\n"
-                "    pass\n"
-                "  s = Struct()\n"
-                "  s.all = Struct()\n");
-      gather_field(v.rhom(), f, wrk);
-      write_field("all", "rhom", f);
-    }
-    const auto name = get_tracer_name(t);
-    if (w_)
-      fprintf(w_->fh.get(), "  s.%s = Struct()\n", name.c_str());
-    gather_field(v.Qm_min(t.idx), f, wrk);
-    write_field(name, "Qm_min", f);
-    gather_field(v.Qm_prev(t.idx), f, wrk);
-    write_field(name, "Qm_orig", f);
-    gather_field(v.Qm(t.idx), f, wrk);
-    write_field(name, "Qm_pre", f);
-    gather_field(v.Qm_max(t.idx), f, wrk);
-    write_field(name, "Qm_max", f);
-  }
-
-  void write_post (const Tracer& t, Values& v) {
-    if ( ! t.write) return;
-    const auto name = get_tracer_name(t);
-    std::vector<Real> Qm, wrk;
-    gather_field(v.Qm(t.idx), Qm, wrk);
-    write_field(name, "Qm_qlt", Qm);
-  }
-
   static void check (const QLTT& qlt) {
     const Int n = qlt.nlclcells();
     std::vector<Int> gcis;
@@ -1211,139 +896,23 @@ private:
       cedr_assert(qlt.gci2lci(gcis[i]) == i);
   }
 
-  static Int check (const Parallel& p, const std::vector<Tracer>& ts, const Values& v) {
-    static const bool details = true;
-    static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
-    Int nerr = 0;
-    std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
-    std::vector<Int> t_ok(ts.size(), 1), local_violated(ts.size(), 0);
-    for (size_t ti = 0; ti < ts.size(); ++ti) {
-      const auto& t = ts[ti];
-
-      cedr_assert(t.safe_should_hold);
-      const bool safe_only = ! t.local_should_hold;
-      const Int n = v.ncells();
-      const Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
-        * Qm_max = v.Qm_max(t.idx), * Qm_prev = v.Qm_prev(t.idx);
-
-      q_min_lcl[ti] = 1;
-      q_max_lcl[ti] = 0;
-      for (Int i = 0; i < n; ++i) {
-        const bool lv = (Qm[i] < Qm_min[i] || Qm[i] > Qm_max[i]);
-        if (lv) local_violated[ti] = 1;
-        if ( ! safe_only && lv) {
-          // If this fails at ~ machine eps, check r2l_nl_adjust_bounds code in
-          // solve_node_problem.
-          if (details)
-            pr("check q " << t.str() << ": " << Qm[i] << " " <<
-               (Qm[i] < Qm_min[i] ? Qm[i] - Qm_min[i] : Qm[i] - Qm_max[i]));
-          t_ok[ti] = false;
-          ++nerr;
-        }
-        if (t.no_change_should_hold && Qm[i] != Qm_prev[i]) {
-          if (details)
-            pr("Q should be unchanged but is not: " << Qm_prev[i] << " changed to " <<
-               Qm[i] << " in " << t.str());
-          t_ok[ti] = false;
-          ++nerr;
-        }
-        lcl_mass[2*ti    ] += Qm_prev[i];
-        lcl_mass[2*ti + 1] += Qm[i];
-        q_min_lcl[ti] = std::min(q_min_lcl[ti], Qm_min[i]/rhom[i]);
-        q_max_lcl[ti] = std::max(q_max_lcl[ti], Qm_max[i]/rhom[i]);
-      }
-    }
-
-    std::vector<Real> q_min_gbl(ts.size(), 0), q_max_gbl(ts.size(), 0);
-    mpi::all_reduce(p, q_min_lcl.data(), q_min_gbl.data(), q_min_lcl.size(), MPI_MIN);
-    mpi::all_reduce(p, q_max_lcl.data(), q_max_gbl.data(), q_max_lcl.size(), MPI_MAX);
-
-    for (size_t ti = 0; ti < ts.size(); ++ti) {
-      // Check safety problem. If local_should_hold and it does, then the safety
-      // problem is by construction also solved (since it's a relaxation of the
-      // local problem).
-      const auto& t = ts[ti];
-      const bool safe_only = ! t.local_should_hold;
-      if (safe_only) {
-        const Int n = v.ncells();
-        const Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
-          * Qm_max = v.Qm_max(t.idx);
-        const Real q_min = q_min_gbl[ti], q_max = q_max_gbl[ti];
-        for (Int i = 0; i < n; ++i) {
-          if (Qm[i] < q_min*rhom[i]*(1 - ulp3) ||
-              Qm[i] > q_max*rhom[i]*(1 + ulp3)) {
-            if (details)
-              pr("check q " << t.str() << ": " << q_min*rhom[i] << " " << Qm_min[i] <<
-                 " " << Qm[i] << " " << Qm_max[i] << " " << q_max*rhom[i] << " | " <<
-                 (Qm[i] < q_min*rhom[i] ?
-                  Qm[i] - q_min*rhom[i] :
-                  Qm[i] - q_max*rhom[i]));
-            t_ok[ti] = false;
-            ++nerr;
-          }
-        }        
-      }
-    }
-
-    std::vector<Real> glbl_mass(2*ts.size(), 0);
-    mpi::reduce(p, lcl_mass.data(), glbl_mass.data(), lcl_mass.size(), MPI_SUM,
-                p.root());
-    std::vector<Int> t_ok_gbl(ts.size(), 0);
-    mpi::reduce(p, t_ok.data(), t_ok_gbl.data(), t_ok.size(), MPI_MIN, p.root());
-    // Right now we're not using these:
-    std::vector<Int> local_violated_gbl(ts.size(), 0);
-    mpi::reduce(p, local_violated.data(), local_violated_gbl.data(),
-                local_violated.size(), MPI_MAX, p.root());
-
-    if (p.amroot()) {
-      const Real tol = 1e3*std::numeric_limits<Real>::epsilon();
-      for (size_t ti = 0; ti < ts.size(); ++ti) {
-        // Check mass conservation.
-        const Real desired_mass = glbl_mass[2*ti], actual_mass = glbl_mass[2*ti+1],
-          rd = cedr::util::reldif(desired_mass, actual_mass);
-        const bool mass_failed = rd > tol;
-        if (mass_failed) {
-          ++nerr;
-          t_ok_gbl[ti] = false;
-        }
-        if ( ! t_ok_gbl[ti]) {
-          std::cout << "FAIL " << ts[ti].str();
-          if (mass_failed) std::cout << " mass re " << rd;
-          std::cout << "\n";
-        }
-      }
-    }
-
-    return nerr;
+  void init_tracers () override {
+    for (const auto& t : tracers_)
+      qlt_.declare_tracer(t.problem_type);
+    qlt_.end_tracer_declarations();
+    cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
+    for (size_t i = 0; i < tracers_.size(); ++i)
+      cedr_assert(qlt_.get_problem_type(i) == (tracers_[i].problem_type |
+                                               ProblemType::consistent));
   }
   
-public:
-  TestQLT (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
-           const Int& ncells, const bool verbose = false)
-    : p_(p), ncells_(ncells), qlt_(p_, ncells, tree), write_inited_(false)
-  {
-    check(qlt_);
-    init_numbering(tree);
-    init_tracers();
-    if (verbose) qlt_.print(std::cout);
-  }
-
-  Int run (const Int nrepeat = 1, const bool write=false) {
-    Timer::start(Timer::trcrgen);
+  void run_impl (Values& v, const Int nrepeat, const bool write) override {
     const Int nt = qlt_.get_num_tracers(), nlclcells = qlt_.nlclcells();
-    Values v(nt, nlclcells);
-    generate_rho(v);
     {
       Real* rhom = v.rhom();
       for (Int i = 0; i < nlclcells; ++i)
         qlt_.set_rhom(i2lci_[i], rhom[i]);
     }
-    for (Int ti = 0; ti < nt; ++ti) {
-      generate_Q(tracers_[ti], v);
-      perturb_Q(tracers_[ti], v);
-      if (write) write_pre(tracers_[ti], v);
-    }
-    Timer::stop(Timer::trcrgen);
     for (Int trial = 0; trial <= nrepeat; ++trial) {
       for (Int ti = 0; ti < nt; ++ti) {
         Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
@@ -1364,17 +933,11 @@ public:
         Timer::reset(Timer::snp);
       }
     }
-    Timer::start(Timer::trcrcheck);
-    Int nerr = 0;
     for (Int ti = 0; ti < nt; ++ti) {
       Real* Qm = v.Qm(ti);
       for (Int i = 0; i < nlclcells; ++i)
         Qm[i] = qlt_.get_Qm(i2lci_[i], ti);
-      if (write) write_post(tracers_[ti], v);
     }
-    nerr += check(*p_, tracers_, v);
-    Timer::stop(Timer::trcrcheck);
-    return nerr;
   }
 };
 

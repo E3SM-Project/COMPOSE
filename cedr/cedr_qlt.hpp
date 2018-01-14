@@ -9,9 +9,7 @@
 #include <vector>
 #include <map>
 
-#include "cedr.hpp"
-#include "cedr_kokkos.hpp"
-#include "cedr_mpi.hpp"
+#include "cedr_cdr.hpp"
 
 namespace cedr {
 // QLT: Quasi-local tree-based non-iterative tracer density reconstructor for
@@ -41,16 +39,12 @@ Node::Ptr make_tree_over_1d_mesh(const Parallel::Ptr& p, const Int& ncells,
 } // namespace tree
 
 template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
-class QLT {
+class QLT : public cedr::CDR {
 public:
   typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
   typedef QLT<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
   
-  struct ProblemType {
-    enum : Int { conserve = 1, shapepreserve = 1 << 1, consistent = 1 << 2 };
-  };
-
   // Set up QLT topology and communication data structures based on a tree.
   QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
 
@@ -70,47 +64,28 @@ public:
   // it. This is not an efficient operation.
   Int gci2lci(const Int& gci) const;
 
-  // Set up QLT tracer metadata. Once end_tracer_declarations is called, it is
-  // an error to call declare_tracer again. Call declare_tracer in order of the
-  // tracer index in the caller's numbering.
-  void declare_tracer(int problem_type);
+  void declare_tracer(int problem_type) override;
 
-  void end_tracer_declarations();
+  void end_tracer_declarations() override;
 
-  int get_problem_type(const Int& tracer_idx) const;
+  int get_problem_type(const Int& tracer_idx) const override;
 
-  Int get_num_tracers() const;
+  Int get_num_tracers() const override;
 
-  // set_{rhom,Qm}: Set cell values prior to running the QLT algorithm.
-  //   set_rhom must be called before set_Qm.
-  //   lclcellidx is gci2lci(cellidx).
-  //   Notation:
-  //     rho: Total density.
-  //       Q: Tracer density.
-  //       q: Tracer mixing ratio = Q/rho.
-  //      *m: Mass corresponding to the density; results from an integral over a
-  //          region, such as a cell.
+  // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx,
-                // Current total mass in this cell.
-                const Real& rhom);
+  void set_rhom(const Int& lclcellidx, const Real& rhom) override;
 
+  // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
-              // Current tracer mass in this cell.
-              const Real& Qm,
-              // Minimum and maximum permitted tracer mass in this cell.
-              const Real& Qm_min, const Real& Qm_max,
-              // If mass conservation is requested, provide the previous Qm,
-              // which will be summed to give the desired global mass.
-              const Real Qm_prev = -1);
+              const Real& Qm, const Real& Qm_min, const Real& Qm_max,
+              const Real Qm_prev = -1) override;
 
-  // Run the QLT algorithm with the values set by set_{rho,Q}.
-  void run();
+  void run() override;
 
-  // Get a cell's tracer mass Qm after the QLT algorithm has run.
   KOKKOS_INLINE_FUNCTION
-  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx);
+  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
 
 private:
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
@@ -167,7 +142,7 @@ private:
       //   The only problem not supported is conservation alone. It makes very
       // little sense to use QLT for conservation alone.
       //   The remaining 6 fall into 4 categories of details. These 4 categories
-      // are traceked by QLT; which of the original 6 problems being solved is
+      // are tracked by QLT; which of the original 6 problems being solved is
       // not important.
       enum {
         // l2r: rhom, (Qm_min, Qm, Qm_max)*; l2r, r2l: Qm*
