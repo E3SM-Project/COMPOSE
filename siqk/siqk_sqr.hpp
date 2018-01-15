@@ -26,10 +26,6 @@ namespace sqr { // spherical quadrilateral <-> reference square
 */
 
 namespace impl {
-// In the implementation, (a,b) in [0,1] because convex combinations are used
-// throughout; but in the user interface, (a,b) in [-1,1] to agree with the
-// definition of the reference square.
-
 // Compute T(i,:).
 template <typename ConstVec3sT, typename Quad>
 KOKKOS_INLINE_FUNCTION
@@ -45,7 +41,9 @@ void calc_T_row (const ConstVec3sT& p, const Quad& e, const Int i,
 template <typename ConstVec3sT, typename Quad>
 KOKKOS_INLINE_FUNCTION
 void calc_ref_to_bilinear (const ConstVec3sT& p, const Quad& e,
-                           const Real a, const Real b, Real q[3]) {
+                           Real a, Real b, Real q[3]) {
+  a = 0.5*(a + 1);
+  b = 0.5*(b + 1);
   for (Int i = 0; i < 3; ++i) {
     Real t1, t2, t3, t4;
     impl::calc_T_row(p, e, i, t1, t2, t3, t4);
@@ -71,8 +69,10 @@ void calc_residual (const ConstVec3sT& p, const Quad& e, const Real a,
 // calc_isoparametric_jacobian in slmmir.cpp.
 template <typename ConstVec3sT, typename Quad>
 KOKKOS_INLINE_FUNCTION
-void calc_Jacobian (const ConstVec3sT& p, const Quad& e, const Real a,
-                    const Real b, Real J[6]) {
+void calc_Jacobian (const ConstVec3sT& p, const Quad& e, Real a, Real b,
+                    Real J[6]) {
+  a = 0.5*(a + 1);
+  b = 0.5*(b + 1);  
   Real r[3];
   for (Int i = 0; i < 3; ++i) {
     Real t1, t2, t3, t4;
@@ -113,8 +113,8 @@ void solve_Jxr (Real J[6], const Real r[3], Real dx[2]) {
       Qtr[j] += Jj[i]*r[i];
   }
   // dx = R \ (Q' r).
-  dx[1] = Qtr[1] / n2;
-  dx[0] = (Qtr[0] - a*dx[1]) / n1;
+  dx[1] = 2*(Qtr[1] / n2);
+  dx[0] = 2*((Qtr[0] - a*dx[1]) / n1);
 }
 } // namespace impl
 
@@ -133,7 +133,7 @@ void calc_ref_to_sphere (
   // The point on the sphere.
   Real q[3])
 {
-  impl::calc_ref_to_bilinear(p, e, 0.5*(a+1), 0.5*(b+1), q);
+  impl::calc_ref_to_bilinear(p, e, a, b, q);
   SphereGeometry::normalize(q);
 }
 
@@ -155,7 +155,7 @@ void calc_sphere_to_ref (
 {
   const Real tol2 = square(tol);
   Real rnorm2 = 1;
-  a = b = 0.5;
+  a = b = 0;
   Int it = 0;
   for (it = 1; it <= max_its; ++it) { // Newton's method.
     Real r[3], J[6];
@@ -168,8 +168,6 @@ void calc_sphere_to_ref (
     a -= dx[0];
     b -= dx[1];
   }
-  a = 2*a - 1;
-  b = 2*b - 1;
   if (info) {
     info->success = rnorm2 <= tol2;
     info->n_iterations = it;
@@ -218,7 +216,7 @@ public:
       ij = k % square(n_a_test),
       i = ij / n_a_test,
       j = ij % n_a_test;
-    const Real a_t = 2*a_test[i]-1, b_t = 2*a_test[j]-1;
+    const Real a_t = a_test[i], b_t = a_test[j];
     Real q[3];
     sqr::calc_ref_to_sphere(p_, slice(e_, ei), a_t, b_t, q);
     Real a, b;
