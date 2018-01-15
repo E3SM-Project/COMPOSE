@@ -10,4 +10,4 @@ $ ./kokkos/generate_makefile.bash --with-openmp --ldflags=-fPIC --prefix=/path/t
 make.inc.mymachine. Edit it with machine-specific information. Then
     $ ln -s make.inc.machine make.inc
     $ make -j2
-    $ mpirun -np 4 ./testqlt -t # Look for PASS
+    $ mpirun -np 4 ./testcedr -t # Look for PASS
