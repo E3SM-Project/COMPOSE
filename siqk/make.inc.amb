@@ -1,0 +1,3 @@
+opt=-O3
+CXX=g++
+KOKKOS=/home/ambradl/lib/kokkos/cpu
