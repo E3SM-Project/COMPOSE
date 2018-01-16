@@ -6,6 +6,8 @@
 namespace cedr {
 // Constrained Density Reconstructor interface.
 struct CDR {
+  virtual void print(std::ostream& os) const {}
+
   // Set up QLT tracer metadata. Once end_tracer_declarations is called, it is
   // an error to call declare_tracer again. Call declare_tracer in order of the
   // tracer index in the caller's numbering. It is an error to call this

@@ -25,7 +25,7 @@ public:
 
   Int get_num_tracers() const override;
 
-  // lclcellidx is trivial, the user's index for the cell.
+  // lclcellidx is trivial; it is the user's index for the cell.
   KOKKOS_INLINE_FUNCTION
   void set_rhom(const Int& lclcellidx, const Real& rhom) override;
 
@@ -42,18 +42,24 @@ public:
 private:
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
   typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
+  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
 
   mpi::Parallel::Ptr p_;
-  Int nlclcells_, ntracers_;
-  MPI_Datatype datatype_;
-  mpi::Op op_;
+  
+  Int nlclcells_;
+  std::shared_ptr<std::vector<Int> > tracer_decls_;
+  bool need_conserve_;
+  IntList tracers_;
   RealList d_, send_, recv_;
 
   void reduce_locally();
   void reduce_globally();
-  void caas();
+  void finish_locally();
 };
 
+namespace test {
+Int unittest(const mpi::Parallel::Ptr& p);
+} // namespace test
 } // namespace caas
 } // namespace cedr
 

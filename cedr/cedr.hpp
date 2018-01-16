@@ -6,6 +6,7 @@
 // Communication-Efficient Constrained Density Reconstructors
 namespace cedr {
 typedef int Int;
+typedef long int Long;
 typedef std::size_t Size;
 typedef double Real;
 

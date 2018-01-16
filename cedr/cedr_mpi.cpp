@@ -21,6 +21,7 @@ Int Parallel::rank () const {
 
 template <> MPI_Datatype get_type<int>() { return MPI_INT; }
 template <> MPI_Datatype get_type<double>() { return MPI_DOUBLE; }
+template <> MPI_Datatype get_type<long>() { return MPI_LONG_INT; }
 
 int waitany (int count, MPI_Request* reqs, int* index, MPI_Status* stats) {
   return MPI_Waitany(count, reqs, index, stats ? stats : MPI_STATUS_IGNORE);

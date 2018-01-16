@@ -1,83 +1,207 @@
 #include "cedr_caas.hpp"
 #include "cedr_util.hpp"
+#include "cedr_test_randomized.hpp"
 
 namespace cedr {
 namespace caas {
 
-struct OpData { int nsum, nmin, nmax; };
-static OpData g_op_data;
-static void all_reduce_op (Real* in, Real* inout, int* len,
-                           MPI_Datatype* /*datatype*/) {
-  const int n = g_op_data.nsum + g_op_data.nmin + g_op_data.nmax;
-  for (int i = 0; i < *len; ++i) {
-    int k = 0;
-    for ( ; k < g_op_data.nsum; ++k)
-      inout[k] += in[k];
-    for ( ; k < g_op_data.nmin; ++k)
-      inout[k] = std::min(inout[k], in[k]);
-    for ( ; k < g_op_data.nmax; ++k)
-      inout[k] = std::max(inout[k], in[k]);
-    in += n;
-    inout += n;
-  }
-}
-
 template <typename ES>
 CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells)
-  : p_(p), nlclcells_(nlclcells), ntracers_(0), op_(all_reduce_op, true)
+  : p_(p), nlclcells_(nlclcells), need_conserve_(false)
 {
-  cedr_throw_if(true, "WIP: Can't call yet.");
+  cedr_throw_if(nlclcells == 0, "CAAS does not support 0 cells on a rank.");
+  tracer_decls_ = std::make_shared<std::vector<Int> >();  
 }
 
 template <typename ES>
 void CAAS<ES>::declare_tracer (int problem_type) {
-  cedr_throw_if( ! (problem_type & ProblemType::shapepreserve) ||
-                   (problem_type & ProblemType::conserve),
-                 "CAAS is a WIP; only shapepreserve (=> consistent) is "
-                 "supported right now.");
-  ++ntracers_;
+  cedr_throw_if( ! (problem_type & ProblemType::shapepreserve),
+                "CAAS is a WIP; ! shapepreserve is not supported yet.");
+  tracer_decls_->push_back(problem_type);
+  if (problem_type & ProblemType::conserve)
+    need_conserve_ = true;
 }
 
 template <typename ES>
 void CAAS<ES>::end_tracer_declarations () {
-  d_ = RealList("CAAS data", nlclcells_ * (3*ntracers_ + 1));
+  tracers_ = IntList("CAAS tracers", static_cast<Int>(tracer_decls_->size()));
+  for (Int i = 0; i < tracers_.extent_int(0); ++i)
+    tracers_(i) = (*tracer_decls_)[i];
+  tracer_decls_ = nullptr;
+  // (rho, Qm, Qm_min, Qm_max, [Qm_prev])
+  const Int e = need_conserve_ ? 1 : 0;
+  d_ = RealList("CAAS data", nlclcells_ * ((3+e)*tracers_.size() + 1));
+  const auto nslots = 4*tracers_.size();
+  // (e'Qm_clip, e'Qm, e'Qm_min, e'Qm_max, [e'Qm_prev])
+  send_ = RealList("CAAS send", nslots);
+  recv_ = RealList("CAAS recv", nslots);
 }
 
 template <typename ES>
 int CAAS<ES>::get_problem_type (const Int& tracer_idx) const {
-  return ProblemType::shapepreserve | ProblemType::consistent;
+  cedr_assert(tracer_idx >= 0 && tracer_idx < tracers_.extent_int(0));
+  return tracers_[tracer_idx];
 }
 
 template <typename ES>
 Int CAAS<ES>::get_num_tracers () const {
-  return ntracers_;
+  return tracers_.extent_int(0);
 }
 
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
+  const Int nt = tracers_.size();
+  Int k = 0;
+  Int os = nlclcells_;
+  // Qm_clip
+  for ( ; k < nt; ++k) {
+    Real Qm_sum = 0, Qm_clip_sum = 0;
+    for (Int i = 0; i < nlclcells_; ++i) {
+      const Real Qm = d_(os+i);
+      Qm_sum += (tracers_(k) & ProblemType::conserve ?
+                 d_(os + nlclcells_*3*nt + i) /* Qm_prev */ :
+                 Qm);
+      const Real Qm_min = d_(os + nlclcells_*  nt + i);
+      const Real Qm_max = d_(os + nlclcells_*2*nt + i);
+      const Real Qm_clip = cedr::impl::min(Qm_max, cedr::impl::max(Qm_min, Qm));
+      Qm_clip_sum += Qm_clip;
+      d_(os+i) = Qm_clip;
+    }
+    send_(     k) = Qm_clip_sum;
+    send_(nt + k) = Qm_sum;
+    os += nlclcells_;
+  }
+  k += nt;
+  // Qm_min, Qm_max
+  for ( ; k < 4*nt; ++k) {
+    Real accum = 0;
+    for (Int i = 0; i < nlclcells_; ++i)
+      accum += d_(os+i);
+    send_(k) = accum;
+    os += nlclcells_;
+  }
 }
 
 template <typename ES>
 void CAAS<ES>::reduce_globally () {
-  MPI_Type_contiguous(1 + 3*ntracers_, MPI_DOUBLE, &datatype_);
-  MPI_Type_commit(&datatype_);
-  g_op_data.nsum = 1 + ntracers_;
-  g_op_data.nmin = ntracers_;
-  g_op_data.nmax = ntracers_;
-  int err = MPI_Allreduce(send_.data(), recv_.data(), nlclcells_, datatype_,
-                          op_.get(), p_->comm());
+  int err = mpi::all_reduce(*p_, send_.data(), recv_.data(), send_.size(), MPI_SUM);
+  cedr_throw_if(err != MPI_SUCCESS,
+                "CAAS::reduce_globally MPI_Allreduce returned " << err);
 }
 
 template <typename ES>
-void CAAS<ES>::caas () {
+void CAAS<ES>::finish_locally () {
+  const Int nt = tracers_.size();
+  Int os = nlclcells_;
+  for (Int k = 0; k < nt; ++k) {
+    const Real Qm_clip_sum = recv_(     k);
+    const Real Qm_sum      = recv_(nt + k);
+    const Real m = Qm_sum - Qm_clip_sum;
+    if (m < 0) {
+      const Real Qm_min_sum = recv_(2*nt + k);
+      Real fac = Qm_clip_sum - Qm_min_sum;
+      if (fac > 0) {
+        fac = m/fac;
+        for (Int i = 0; i < nlclcells_; ++i) {
+          const Real Qm_min = d_(os + nlclcells_*  nt + i);
+          Real& Qm = d_(os+i);
+          Qm += fac*(Qm - Qm_min);
+        }
+      }
+    } else if (m > 0) {
+      const Real Qm_max_sum = recv_(3*nt + k);
+      Real fac = Qm_max_sum - Qm_clip_sum;
+      if (fac > 0) {
+        fac = m/fac;
+        for (Int i = 0; i < nlclcells_; ++i) {
+          const Real Qm_max = d_(os + nlclcells_*2*nt + i);
+          Real& Qm = d_(os+i);
+          Qm += fac*(Qm_max - Qm);
+        }
+      }
+    }
+    os += nlclcells_;
+  }
 }
 
 template <typename ES>
 void CAAS<ES>::run () {
   reduce_locally();
   reduce_globally();
-  caas();
+  finish_locally();
 }
 
+namespace test {
+struct TestCAAS : public cedr::test::TestRandomized {
+  typedef CAAS<Kokkos::DefaultExecutionSpace> CAAST;
+
+  TestCAAS (const mpi::Parallel::Ptr& p, const Int& ncells, const bool verbose)
+    : TestRandomized("CAAS", p, ncells, verbose),
+      p_(p)
+  {
+    const auto np = p->size(), rank = p->rank();
+    nlclcells_ = ncells / np;
+    const Int todo = ncells - nlclcells_ * np;
+    if (rank < todo) ++nlclcells_;
+    caas_ = std::make_shared<CAAST>(p, nlclcells_);
+    init();
+  }
+
+  CDR& get_cdr () override { return *caas_; }
+
+  void init_numbering () override {
+    const auto np = p_->size(), rank = p_->rank();
+    Int start = 0;
+    for (Int lrank = 0; lrank < rank; ++lrank)
+      start += get_nllclcells(ncells_, np, lrank);
+    gcis_.resize(nlclcells_);
+    for (Int i = 0; i < nlclcells_; ++i)
+      gcis_[i] = start + i;
+  }
+
+  void init_tracers () override {
+    // CAAS doesn't yet support everything, so remove a bunch of the tracers.
+    std::vector<TestRandomized::Tracer> tracers;
+    Int idx = 0;
+    for (auto& t : tracers_) {
+      if ( ! (t.problem_type & ProblemType::shapepreserve) ||
+           ! t.local_should_hold)
+        continue;
+      t.idx = idx++;
+      tracers.push_back(t);
+      caas_->declare_tracer(t.problem_type);
+    }
+    tracers_ = tracers;
+    caas_->end_tracer_declarations();
+  }
+
+  void run_impl (const Int trial) override {
+    caas_->run();
+  }
+
+private:
+  mpi::Parallel::Ptr p_;
+  Int nlclcells_;
+  CAAST::Ptr caas_;
+
+  static Int get_nllclcells (const Int& ncells, const Int& np, const Int& rank) {
+    Int nlclcells = ncells / np;
+    const Int todo = ncells - nlclcells * np;
+    if (rank < todo) ++nlclcells;
+    return nlclcells;
+  }
+};
+
+Int unittest (const mpi::Parallel::Ptr& p) {
+  const auto np = p->size();
+  Int nerr = 0;
+  for (Int nlclcells : {1, 2, 4, 11}) {
+    Long ncells = np*nlclcells;
+    if (ncells > np) ncells -= np/2;
+    nerr += TestCAAS(p, ncells, false).run(1, false);
+  }
+  return nerr;
+}
+} // namespace test
 } // namespace caas
 } // namespace cedr

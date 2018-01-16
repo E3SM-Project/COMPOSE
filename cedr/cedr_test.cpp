@@ -1,4 +1,5 @@
 #include "cedr_qlt.hpp"
+#include "cedr_caas.hpp"
 #include "cedr_mpi.hpp"
 #include "cedr_util.hpp"
 #include "cedr_test.hpp"
@@ -81,8 +82,10 @@ int main (int argc, char** argv) {
   try {
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
-    if (inp.qin.unittest)
+    if (inp.qin.unittest) {
       nerr += cedr::local::unittest();
+      nerr += cedr::caas::test::unittest(p);
+    }
     if (inp.qin.unittest || inp.qin.perftest)
       nerr += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);
     if (inp.tin.ncells > 0)

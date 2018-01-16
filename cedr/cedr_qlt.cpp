@@ -499,7 +499,7 @@ Int unittest (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
 template <typename ES>
 void QLT<ES>::init (const std::string& name, IntList& d,
                     typename IntList::HostMirror& h, size_t n) {
-  d = IntList(name, n);
+  d = IntList("QLT " + name, n);
   h = Kokkos::create_mirror_view(d);
 }
 
@@ -589,8 +589,8 @@ void QLT<ES>::MetaData::init (const MetaDataBuilder& mdb) {
 
 template <typename ES>
 void QLT<ES>::BulkData::init (const MetaData& md, const Int& nslots) {
-  l2r_data_ = RealList("l2r_data", md.a_h.prob2bl2r[md.nprobtypes]*nslots);
-  r2l_data_ = RealList("r2l_data", md.a_h.prob2br2l[md.nprobtypes]*nslots);
+  l2r_data_ = RealList("QLT l2r_data", md.a_h.prob2bl2r[md.nprobtypes]*nslots);
+  r2l_data_ = RealList("QLT r2l_data", md.a_h.prob2br2l[md.nprobtypes]*nslots);
   l2r_data = l2r_data_;
   r2l_data = r2l_data_;
 }
@@ -615,6 +615,7 @@ void QLT<ES>::init_ordinals () {
 template <typename ES>
 QLT<ES>::QLT (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree) {
   init(p, ncells, tree);
+  cedr_throw_if(nlclcells() == 0, "QLT does not support 0 cells on a rank.");
 }
 
 template <typename ES>
@@ -631,7 +632,7 @@ Int QLT<ES>::nlclcells () const { return ns_->levels[0].nodes.size(); }
 // and instead uses the information from get_owned_glblcells to determine
 // local cell indices.
 template <typename ES>
-void QLT<ES>::get_owned_glblcells (std::vector<Int>& gcis) const {
+void QLT<ES>::get_owned_glblcells (std::vector<Long>& gcis) const {
   gcis.resize(ns_->levels[0].nodes.size());
   for (const auto& n : ns_->levels[0].nodes)
     gcis[n->offset] = n->id;
@@ -645,7 +646,7 @@ Int QLT<ES>::gci2lci (const Int& gci) const {
   const auto it = gci2lci_.find(gci);
   if (it == gci2lci_.end()) {
     pr(puf(gci));
-    std::vector<Int> gcis;
+    std::vector<Long> gcis;
     get_owned_glblcells(gcis);
     mprarr(gcis);
   }
@@ -856,7 +857,8 @@ public:
 
   TestQLT (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
            const Int& ncells, const bool verbose=false)
-    : TestRandomized(p, ncells, verbose), qlt_(p, ncells, tree), tree_(tree)
+    : TestRandomized("QLT", p, ncells, verbose),
+      qlt_(p, ncells, tree), tree_(tree)
   {
     if (verbose) qlt_.print(std::cout);
     init();
@@ -865,7 +867,8 @@ public:
 private:
   QLTT qlt_;
   tree::Node::Ptr tree_;
-  std::vector<Int> i2lci_;
+
+  CDR& get_cdr () override { return qlt_; }
 
   void init_numbering () override {
     init_numbering(tree_);
@@ -877,10 +880,8 @@ private:
     // geometry to the test problem. However, use *some* ordering to model what
     // a real problem must do.
     if ( ! node->nkids) {
-      if (node->rank == p_->rank()) {
+      if (node->rank == p_->rank())
         gcis_.push_back(node->cellidx);
-        i2lci_.push_back(qlt_.gci2lci(gcis_.back()));
-      }
       return;
     }
     for (Int i = 0; i < node->nkids; ++i)
@@ -889,7 +890,7 @@ private:
 
   static void check (const QLTT& qlt) {
     const Int n = qlt.nlclcells();
-    std::vector<Int> gcis;
+    std::vector<Long> gcis;
     qlt.get_owned_glblcells(gcis);
     cedr_assert(static_cast<Int>(gcis.size()) == n);
     for (Int i = 0; i < n; ++i)
@@ -906,44 +907,25 @@ private:
                                                ProblemType::consistent));
   }
   
-  void run_impl (Values& v, const Int nrepeat, const bool write) override {
-    const Int nt = qlt_.get_num_tracers(), nlclcells = qlt_.nlclcells();
-    {
-      Real* rhom = v.rhom();
-      for (Int i = 0; i < nlclcells; ++i)
-        qlt_.set_rhom(i2lci_[i], rhom[i]);
-    }
-    for (Int trial = 0; trial <= nrepeat; ++trial) {
-      for (Int ti = 0; ti < nt; ++ti) {
-        Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
-          * Qm_prev = v.Qm_prev(ti);
-        for (Int i = 0; i < nlclcells; ++i)
-          qlt_.set_Qm(i2lci_[i], ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
-      }
-      MPI_Barrier(p_->comm());
-      Timer::start(Timer::qltrun);
-      qlt_.run();
-      MPI_Barrier(p_->comm());
-      Timer::stop(Timer::qltrun);
-      if (trial == 0) {
-        Timer::reset(Timer::qltrun);
-        Timer::reset(Timer::qltrunl2r);
-        Timer::reset(Timer::qltrunr2l);
-        Timer::reset(Timer::waitall);
-        Timer::reset(Timer::snp);
-      }
-    }
-    for (Int ti = 0; ti < nt; ++ti) {
-      Real* Qm = v.Qm(ti);
-      for (Int i = 0; i < nlclcells; ++i)
-        Qm[i] = qlt_.get_Qm(i2lci_[i], ti);
+  void run_impl (const Int trial) override {
+    MPI_Barrier(p_->comm());
+    Timer::start(Timer::qltrun);
+    qlt_.run();
+    MPI_Barrier(p_->comm());
+    Timer::stop(Timer::qltrun);
+    if (trial == 0) {
+      Timer::reset(Timer::qltrun);
+      Timer::reset(Timer::qltrunl2r);
+      Timer::reset(Timer::qltrunr2l);
+      Timer::reset(Timer::waitall);
+      Timer::reset(Timer::snp);
     }
   }
 };
 
 // Test all QLT variations and situations.
 Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree, const Int& ncells,
-              const int nrepeat = 1,
+              const Int nrepeat = 1,
               // Diagnostic output for dev and illustration purposes. To be
               // clear, no QLT unit test requires output to be checked; each
               // checks in-memory data and returns a failure count.
@@ -979,7 +961,7 @@ struct Mesh {
     nranks_ = p->size();
     p_ = p;
     pd_ = parallel_decomp;
-    cedr_assert(nranks_ <= nc_);
+    cedr_throw_if(nranks_ > nc_, "#GIDs < #ranks is not supported.");
   }
 
   Int ncell () const { return nc_; }
