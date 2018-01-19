@@ -261,10 +261,10 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
   cedr_throw_if(parallel->size() > 1, "run_1d_transport_test runs in serial only.");
   Int nerr = 0;
 
-  Problem1D p(in.ncells, true /* nonuniform_mesh */ );
+  Problem1D p(in.ncells, false /* nonuniform_mesh */ );
 
   auto tree = qlt::tree::make_tree_over_1d_mesh(parallel, in.ncells,
-                                                true /* imbalanced */);
+                                                false /* imbalanced */);
   typedef qlt::QLT<Kokkos::DefaultHostExecutionSpace> QLTT;
   QLTT qlt(parallel, in.ncells, tree);
 
@@ -276,10 +276,10 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
 
   for (CDR* cdr : cdrs) {
     cdr->declare_tracer(cedr::ProblemType::conserve |
-                        cedr::ProblemType::shapepreserve);
+                        cedr::ProblemType::shapepreserve, 0);
     cdr->end_tracer_declarations();
     for (Int i = 0; i < in.ncells; ++i)
-      cdr->set_rhom(i, p.area(i));
+      cdr->set_rhom(i, 0, p.area(i));
     cdr->print(std::cout);
   }
 

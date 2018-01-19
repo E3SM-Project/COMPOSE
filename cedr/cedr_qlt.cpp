@@ -654,13 +654,11 @@ Int QLT<ES>::gci2lci (const Int& gci) const {
   return it->second;
 }
 
-// Set up QLT tracer metadata. Once end_tracer_declarations is called, it is
-// an error to call declare_tracer again. Call declare_tracer in order of the
-// tracer index in the caller's numbering.
 template <typename ES>
-void QLT<ES>::declare_tracer (int problem_type) {
+void QLT<ES>::declare_tracer (int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! mdb_, "end_tracer_declarations was already called; "
                 "it is an error to call declare_tracer now.");
+  cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   // For its exception side effect, and to get canonical problem type, since
   // some possible problem types map to the same canonical one:
   problem_type = md_.get_problem_type(md_.get_problem_type_idx(problem_type));
@@ -697,15 +695,17 @@ void QLT<ES>::run () {
   for (size_t il = 0; il < ns_->levels.size(); ++il) {
     auto& lvl = ns_->levels[il];
     // Set up receives.
-    for (size_t i = 0; i < lvl.kids.size(); ++i) {
-      const auto& mmd = lvl.kids[i];
-      mpi::irecv(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                 NodeSets::mpitag, &lvl.kids_req[i]);
+    if (lvl.kids.size()) {
+      for (size_t i = 0; i < lvl.kids.size(); ++i) {
+        const auto& mmd = lvl.kids[i];
+        mpi::irecv(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
+                   NodeSets::mpitag, &lvl.kids_req[i]);
+      }
+      //todo Replace with simultaneous waitany and isend.
+      Timer::start(Timer::waitall);
+      mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
+      Timer::stop(Timer::waitall);
     }
-    //todo Replace with simultaneous waitany and isend.
-    Timer::start(Timer::waitall);
-    mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
-    Timer::stop(Timer::waitall);
     // Combine kids' data.
     //todo Kernelize, interacting with waitany todo above.
     for (const auto& n : lvl.nodes) {
@@ -734,15 +734,17 @@ void QLT<ES>::run () {
       }
     }
     // Send to parents.
-    for (size_t i = 0; i < lvl.me.size(); ++i) {
-      const auto& mmd = lvl.me[i];
-      mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                 NodeSets::mpitag, &lvl.me_req[i]);
-    }
-    if (il+1 == ns_->levels.size()) {
-      Timer::start(Timer::waitall);
-      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
-      Timer::stop(Timer::waitall);
+    if (lvl.me.size()) {
+      for (size_t i = 0; i < lvl.me.size(); ++i) {
+        const auto& mmd = lvl.me[i];
+        mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
+                   NodeSets::mpitag, &lvl.me_req[i]);
+      }
+      if (il+1 == ns_->levels.size()) {
+        Timer::start(Timer::waitall);
+        mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
+        Timer::stop(Timer::waitall);
+      }
     }
   }
   Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
@@ -776,15 +778,17 @@ void QLT<ES>::run () {
   // Root to leaves.
   for (size_t il = ns_->levels.size(); il > 0; --il) {
     auto& lvl = ns_->levels[il-1];
-    for (size_t i = 0; i < lvl.me.size(); ++i) {
-      const auto& mmd = lvl.me[i];
-      mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                 NodeSets::mpitag, &lvl.me_req[i]);
+    if (lvl.me.size()) {
+      for (size_t i = 0; i < lvl.me.size(); ++i) {
+        const auto& mmd = lvl.me[i];
+        mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
+                   NodeSets::mpitag, &lvl.me_req[i]);
+      }
+      //todo Replace with simultaneous waitany and isend.
+      Timer::start(Timer::waitall);
+      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
+      Timer::stop(Timer::waitall);
     }
-    //todo Replace with simultaneous waitany and isend.
-    Timer::start(Timer::waitall);
-    mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
-    Timer::stop(Timer::waitall);
     // Solve QP for kids' values.
     //todo Kernelize, interacting with waitany todo above.
     Timer::start(Timer::snp);
@@ -829,11 +833,12 @@ void QLT<ES>::run () {
     }
     Timer::stop(Timer::snp);
     // Send.
-    for (size_t i = 0; i < lvl.kids.size(); ++i) {
-      const auto& mmd = lvl.kids[i];
-      mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                 NodeSets::mpitag, &lvl.kids_req[i]);
-    }
+    if (lvl.kids.size())
+      for (size_t i = 0; i < lvl.kids.size(); ++i) {
+        const auto& mmd = lvl.kids[i];
+        mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
+                   NodeSets::mpitag, &lvl.kids_req[i]);
+      }
   }
   // Wait on sends to clean up.
   for (size_t il = 0; il < ns_->levels.size(); ++il) {
@@ -899,7 +904,7 @@ private:
 
   void init_tracers () override {
     for (const auto& t : tracers_)
-      qlt_.declare_tracer(t.problem_type);
+      qlt_.declare_tracer(t.problem_type, 0);
     qlt_.end_tracer_declarations();
     cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
     for (size_t i = 0; i < tracers_.size(); ++i)

@@ -64,7 +64,7 @@ public:
   // it. This is not an efficient operation.
   Int gci2lci(const Int& gci) const;
 
-  void declare_tracer(int problem_type) override;
+  void declare_tracer(int problem_type, const Int& rhomidx) override;
 
   void end_tracer_declarations() override;
 
@@ -74,7 +74,7 @@ public:
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION

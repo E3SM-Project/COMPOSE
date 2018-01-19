@@ -7,31 +7,38 @@ namespace caas {
 
 template <typename ES>
 CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells)
-  : p_(p), nlclcells_(nlclcells), need_conserve_(false)
+  : p_(p), nlclcells_(nlclcells), nrhomidxs_(0), need_conserve_(false)
 {
   cedr_throw_if(nlclcells == 0, "CAAS does not support 0 cells on a rank.");
-  tracer_decls_ = std::make_shared<std::vector<Int> >();  
+  tracer_decls_ = std::make_shared<std::vector<Decl> >();  
 }
 
 template <typename ES>
-void CAAS<ES>::declare_tracer (int problem_type) {
+void CAAS<ES>::declare_tracer(int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! (problem_type & ProblemType::shapepreserve),
                 "CAAS is a WIP; ! shapepreserve is not supported yet.");
-  tracer_decls_->push_back(problem_type);
+  cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
+  tracer_decls_->push_back(Decl(problem_type, rhomidx));
   if (problem_type & ProblemType::conserve)
     need_conserve_ = true;
+  nrhomidxs_ = std::max(nrhomidxs_, rhomidx+1);
 }
 
 template <typename ES>
 void CAAS<ES>::end_tracer_declarations () {
-  tracers_ = IntList("CAAS tracers", static_cast<Int>(tracer_decls_->size()));
-  for (Int i = 0; i < tracers_.extent_int(0); ++i)
-    tracers_(i) = (*tracer_decls_)[i];
+  cedr_throw_if(tracer_decls_->size() == 0, "#tracers is 0.");
+  cedr_throw_if(nrhomidxs_ == 0, "#rhomidxs is 0.");
+  probs_ = IntList("CAAS probs", static_cast<Int>(tracer_decls_->size()));
+  t2r_ = IntList("CAAS t2r", static_cast<Int>(tracer_decls_->size()));
+  for (Int i = 0; i < probs_.extent_int(0); ++i) {
+    probs_(i) = (*tracer_decls_)[i].probtype;
+    t2r_(i) = (*tracer_decls_)[i].rhomidx;
+  }
   tracer_decls_ = nullptr;
   // (rho, Qm, Qm_min, Qm_max, [Qm_prev])
   const Int e = need_conserve_ ? 1 : 0;
-  d_ = RealList("CAAS data", nlclcells_ * ((3+e)*tracers_.size() + 1));
-  const auto nslots = 4*tracers_.size();
+  d_ = RealList("CAAS data", nlclcells_ * ((3+e)*probs_.size() + 1));
+  const auto nslots = 4*probs_.size();
   // (e'Qm_clip, e'Qm, e'Qm_min, e'Qm_max, [e'Qm_prev])
   send_ = RealList("CAAS send", nslots);
   recv_ = RealList("CAAS recv", nslots);
@@ -39,18 +46,18 @@ void CAAS<ES>::end_tracer_declarations () {
 
 template <typename ES>
 int CAAS<ES>::get_problem_type (const Int& tracer_idx) const {
-  cedr_assert(tracer_idx >= 0 && tracer_idx < tracers_.extent_int(0));
-  return tracers_[tracer_idx];
+  cedr_assert(tracer_idx >= 0 && tracer_idx < probs_.extent_int(0));
+  return probs_[tracer_idx];
 }
 
 template <typename ES>
 Int CAAS<ES>::get_num_tracers () const {
-  return tracers_.extent_int(0);
+  return probs_.extent_int(0);
 }
 
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
-  const Int nt = tracers_.size();
+  const Int nt = probs_.size();
   Int k = 0;
   Int os = nlclcells_;
   // Qm_clip
@@ -58,7 +65,7 @@ void CAAS<ES>::reduce_locally () {
     Real Qm_sum = 0, Qm_clip_sum = 0;
     for (Int i = 0; i < nlclcells_; ++i) {
       const Real Qm = d_(os+i);
-      Qm_sum += (tracers_(k) & ProblemType::conserve ?
+      Qm_sum += (probs_(k) & ProblemType::conserve ?
                  d_(os + nlclcells_*3*nt + i) /* Qm_prev */ :
                  Qm);
       const Real Qm_min = d_(os + nlclcells_*  nt + i);
@@ -91,7 +98,7 @@ void CAAS<ES>::reduce_globally () {
 
 template <typename ES>
 void CAAS<ES>::finish_locally () {
-  const Int nt = tracers_.size();
+  const Int nt = probs_.size();
   Int os = nlclcells_;
   for (Int k = 0; k < nt; ++k) {
     const Real Qm_clip_sum = recv_(     k);
@@ -169,7 +176,7 @@ struct TestCAAS : public cedr::test::TestRandomized {
         continue;
       t.idx = idx++;
       tracers.push_back(t);
-      caas_->declare_tracer(t.problem_type);
+      caas_->declare_tracer(t.problem_type, 0);
     }
     tracers_ = tracers;
     caas_->end_tracer_declarations();

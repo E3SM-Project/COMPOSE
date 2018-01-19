@@ -410,7 +410,7 @@ Int TestRandomized::run (const Int nrepeat, const bool write) {
   {
     Real* rhom = v.rhom();
     for (Int i = 0; i < nlclcells; ++i)
-      cdr.set_rhom(i, rhom[i]);
+      cdr.set_rhom(i, 0, rhom[i]);
   }
   for (Int trial = 0; trial <= nrepeat; ++trial) {
     for (Int ti = 0; ti < nt; ++ti) {
