@@ -6,11 +6,17 @@
 namespace cedr {
 // Constrained Density Reconstructor interface.
 struct CDR {
-  // Set up QLT tracer metadata. Once end_tracer_declarations is called, it is
-  // an error to call declare_tracer again. Call declare_tracer in order of the
-  // tracer index in the caller's numbering. It is an error to call this
-  // function from a parallel region.
-  virtual void declare_tracer(int problem_type) = 0;
+  typedef std::shared_ptr<CDR> Ptr;
+
+  virtual void print(std::ostream& os) const {}
+
+  // Set up QLT tracer metadata. Call declare_tracer in order of the tracer
+  // index in the caller's numbering. Once end_tracer_declarations is called, it
+  // is an error to call declare_tracer again.
+  //   Associate the tracer with a rhom index. In many problems, there will be
+  // only one rhom, so rhomidx is always 0.
+  //   It is an error to call this function from a parallel region.
+  virtual void declare_tracer(int problem_type, const Int& rhomidx) = 0;
 
   // It is an error to call this function from a parallel region.
   virtual void end_tracer_declarations() = 0;
@@ -20,7 +26,7 @@ struct CDR {
   virtual Int get_num_tracers() const = 0;
 
   // set_{rhom,Qm}: Set cell values prior to running the QLT algorithm.
-  //   set_rhom must be called before set_Qm.
+  //
   //   Notation:
   //     rho: Total density.
   //       Q: Tracer density.
@@ -30,8 +36,10 @@ struct CDR {
   //   Some CDRs have a nontrivial local <-> global cell index map. For these
   // CDRs, lclcellidx may be nontrivial. For others, the caller should provide
   // the index into the local cell.
+  //
+  //   set_rhom must be called before set_Qm.
   virtual void set_rhom(
-    const Int& lclcellidx,
+    const Int& lclcellidx, const Int& rhomidx,
     // Current total mass in this cell.
     const Real& rhom) = 0;
 

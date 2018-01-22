@@ -1,6 +1,7 @@
 #ifndef INCLUDE_CEDR_TEST_RANDOMIZED_HPP
 #define INCLUDE_CEDR_TEST_RANDOMIZED_HPP
 
+#include "cedr_cdr.hpp"
 #include "cedr_mpi.hpp"
 #include "cedr_util.hpp"
 
@@ -9,12 +10,16 @@ namespace test {
 
 class TestRandomized {
 public:
-  TestRandomized(const mpi::Parallel::Ptr& p, const Int& ncells,
-                 const bool verbose = false);
+  TestRandomized(const std::string& cdr_name, const mpi::Parallel::Ptr& p,
+                 const Int& ncells, const bool verbose = false);
 
+  // The subclass should call this, probably in its constructor.
   void init();
 
   Int run(const Int nrepeat = 1, const bool write=false);
+
+private:
+  const std::string cdr_name_;
 
 protected:
   struct Tracer {
@@ -62,19 +67,19 @@ protected:
   struct Writer {
     std::unique_ptr<FILE, cedr::util::FILECloser> fh;
     std::vector<Int> ngcis;  // Number of i'th rank's gcis_ array.
+    std::vector<Long> gcis;  // Global cell indices packed by rank's gcis_ vector.
     std::vector<int> displs; // Cumsum of above.
-    std::vector<Int> gcis;   // Global cell indices packed by rank's gcis_ vector.
     ~Writer();
   };
 
   const mpi::Parallel::Ptr p_;
   const Int ncells_;
   // Global mesh entity IDs, 1-1 with reduction array index or QLT leaf node.
-  std::vector<Int> gcis_;
+  std::vector<Long> gcis_;
   std::vector<Tracer> tracers_;
-  // For optional output.
-  bool write_inited_;
-  std::shared_ptr<Writer> w_; // Only on root.
+
+  // Tell this class the CDR.
+  virtual CDR& get_cdr() = 0;
 
   // Fill gcis_.
   virtual void init_numbering() = 0;
@@ -82,9 +87,13 @@ protected:
   // Using tracers_, the vector of Tracers, initialize the CDR's tracers.
   virtual void init_tracers() = 0;
 
-  virtual void run_impl(Values& v, const Int nrepeat, const bool write) = 0;
+  virtual void run_impl(const Int trial) = 0;
 
 private:
+  // For optional output.
+  bool write_inited_;
+  std::shared_ptr<Writer> w_; // Only on root.
+
   void init_tracers_vector();
 
   void add_const_to_Q(
@@ -109,8 +118,8 @@ private:
   static void generate_Q(const Tracer& t, Values& v);
   static void permute_Q(const Tracer& t, Values& v);
   static std::string get_tracer_name(const Tracer& t);
-  static Int check(const mpi::Parallel& p, const std::vector<Tracer>& ts,
-                   const Values& v);
+  static Int check(const std::string& cdr_name, const mpi::Parallel& p,
+                   const std::vector<Tracer>& ts, const Values& v);
 };
 
 } // namespace test

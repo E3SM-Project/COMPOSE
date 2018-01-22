@@ -29,3 +29,4 @@ cedr_caas.o: cedr_mpi.hpp cedr_mpi_inl.hpp cedr_local.hpp cedr_local_inl.hpp \
 cedr_test.o: cedr_qlt.hpp cedr_util.hpp
 cedr_test_1d_transport.o: cedr_qlt.hpp cedr_util.hpp
 cedr_local.o: cedr_local_inl.hpp
+cedr_test_randomized.o: cedr_qlt.hpp cedr_util.hpp cedr_test_randomized.hpp

@@ -25,7 +25,7 @@ struct Node {
   typedef std::shared_ptr<Node> Ptr;
   const Node* parent; // (Can't be a shared_ptr: would be a circular dependency.)
   Int rank;           // Owning rank.
-  Int cellidx;        // If a leaf, the cell to which this node corresponds.
+  Long cellidx;       // If a leaf, the cell to which this node corresponds.
   Int nkids;          // 0 at leaf, 1 or 2 otherwise.
   Node::Ptr kids[2];
   void* reserved;     // For internal use.
@@ -48,7 +48,7 @@ public:
   // Set up QLT topology and communication data structures based on a tree.
   QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
 
-  void print(std::ostream& os) const;
+  void print(std::ostream& os) const override;
 
   // Number of cells owned by this rank.
   Int nlclcells() const;
@@ -57,14 +57,14 @@ public:
   // gci2lci(gcis[i]) == i. Ideally, the caller never actually calls gci2lci(),
   // and instead uses the information from get_owned_glblcells to determine
   // local cell indices.
-  void get_owned_glblcells(std::vector<Int>& gcis) const;
+  void get_owned_glblcells(std::vector<Long>& gcis) const;
 
   // For global cell index cellidx, i.e., the globally unique ordinal associated
   // with a cell in the caller's tree, return this rank's local index for
   // it. This is not an efficient operation.
   Int gci2lci(const Int& gci) const;
 
-  void declare_tracer(int problem_type) override;
+  void declare_tracer(int problem_type, const Int& rhomidx) override;
 
   void end_tracer_declarations() override;
 
@@ -74,7 +74,7 @@ public:
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION

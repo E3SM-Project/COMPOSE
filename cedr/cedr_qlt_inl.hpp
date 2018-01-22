@@ -9,7 +9,7 @@ namespace cedr {
 namespace qlt {
 
 template <typename ES> KOKKOS_INLINE_FUNCTION
-void QLT<ES>::set_rhom (const Int& lclcellidx, const Real& rhom) {
+void QLT<ES>::set_rhom (const Int& lclcellidx, const Int& rhomidx, const Real& rhom) {
   const Int ndps = md_.a_d.prob2bl2r[md_.nprobtypes];
   bd_.l2r_data(ndps*lclcellidx) = rhom;  
 }

@@ -1,5 +1,6 @@
 #include "cedr_test.hpp"
 #include "cedr_qlt.hpp"
+#include "cedr_caas.hpp"
 
 #include <algorithm>
 
@@ -163,8 +164,7 @@ class Problem1D {
     xcp_.back() = 1 + xcp_[0];
   }
 
-  static void run_qlt (const Problem1D& p,
-                       qlt::QLT<Kokkos::DefaultHostExecutionSpace>& qlt,
+  static void run_cdr (const Problem1D& p, CDR& cdr,
                        const Real* yp, Real* y, const Int* dods) {
     const Int n = p.ncells();
     for (Int i = 0; i < n; ++i) {
@@ -176,11 +176,11 @@ class Problem1D {
         max = std::max(max, v);
       }
       const Real area_i = p.area(i);
-      qlt.set_Qm(i, 0, y[i]*area_i, min*area_i, max*area_i, yp[i]*area_i);
+      cdr.set_Qm(i, 0, y[i]*area_i, min*area_i, max*area_i, yp[i]*area_i);
     }
-    qlt.run();
+    cdr.run();
     for (Int i = 0; i < n; ++i)
-      y[i] = qlt.get_Qm(i, 0) / p.area(i);
+      y[i] = cdr.get_Qm(i, 0) / p.area(i);
     y[n] = y[0];
   }
 
@@ -224,8 +224,7 @@ public:
   const std::vector<Real> get_xb () const { return xb_; }
   const std::vector<Real> get_xcp () const { return xcp_; }
 
-  void cycle (const Int& nsteps, const Real* y0, Real* yf,
-              qlt::QLT<Kokkos::DefaultHostExecutionSpace>* qlt = nullptr) {
+  void cycle (const Int& nsteps, const Real* y0, Real* yf, CDR* cdr = nullptr) {
     const Int n = xcp_.size();
     rwrk_.resize(2*n);
     iwrk_.resize(4*n);
@@ -241,8 +240,8 @@ public:
     for (Int ti = 0; ti < nsteps; ++ti) {
       interp::cubic_interp_periodic(xcp_.data(), n, ys[0],
                                     xcpi, n, ys[1], dod);
-      if (qlt)
-        run_qlt(*this, *qlt, ys[0], ys[1], dod);
+      if (cdr)
+        run_cdr(*this, *cdr, ys[0], ys[1], dod);
       else
         run_caas(*this, ys[0], ys[1], dod);
       std::swap(ys[0], ys[1]);
@@ -257,24 +256,32 @@ public:
 // - better, more canonical IC
 // - optional tree imbalance
 // - optional mesh nonuniformity
-// - choice of preservation methods
 // - parallel?
 Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
   cedr_throw_if(parallel->size() > 1, "run_1d_transport_test runs in serial only.");
   Int nerr = 0;
 
-  Problem1D p(in.ncells, true /* nonuniform_mesh */ );
+  Problem1D p(in.ncells, false /* nonuniform_mesh */ );
 
   auto tree = qlt::tree::make_tree_over_1d_mesh(parallel, in.ncells,
-                                                true /* imbalanced */);
+                                                false /* imbalanced */);
   typedef qlt::QLT<Kokkos::DefaultHostExecutionSpace> QLTT;
   QLTT qlt(parallel, in.ncells, tree);
-  qlt.declare_tracer(cedr::ProblemType::conserve |
-                     cedr::ProblemType::shapepreserve);
-  qlt.end_tracer_declarations();
-  for (Int i = 0; i < in.ncells; ++i)
-    qlt.set_rhom(i, p.area(i));
-  qlt.print(std::cout);
+
+  typedef caas::CAAS<Kokkos::DefaultHostExecutionSpace> CAAST;
+  CAAST caas(parallel, in.ncells);
+
+  CDR* cdrs[] = {&qlt, &caas};
+  const int ncdrs = sizeof(cdrs)/sizeof(*cdrs);
+
+  for (CDR* cdr : cdrs) {
+    cdr->declare_tracer(cedr::ProblemType::conserve |
+                        cedr::ProblemType::shapepreserve, 0);
+    cdr->end_tracer_declarations();
+    for (Int i = 0; i < in.ncells; ++i)
+      cdr->set_rhom(i, 0, p.area(i));
+    cdr->print(std::cout);
+  }
 
   std::vector<Real> y0(in.ncells+1);
   for (Int i = 0, nc = p.ncells(); i < nc; ++i)
@@ -292,15 +299,18 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
   const Int nsteps = Int(3.17*in.ncells);
   const Int ncycles = 1;
   
-  std::copy(y0.begin(), y0.end(), yf.begin());
-  for (Int i = 0; i < ncycles; ++i)
-    p.cycle(nsteps, yf.data(), yf.data(), &qlt);
-  w.write("yqlt", yf);
+  const char* names[] = {"yqlt", "ycaas"};
+  for (int ic = 0; ic < ncdrs; ++ic) {
+    std::copy(y0.begin(), y0.end(), yf.begin());
+    for (Int i = 0; i < ncycles; ++i)
+      p.cycle(nsteps, yf.data(), yf.data(), cdrs[ic]);
+    w.write(names[ic], yf);
+  }
 
   std::copy(y0.begin(), y0.end(), yf.begin());
   for (Int i = 0; i < ncycles; ++i)
     p.cycle(nsteps, yf.data(), yf.data());
-  w.write("ycaas", yf);
+  w.write("ylcaas", yf);
 
   return nerr;
 }

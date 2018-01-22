@@ -123,7 +123,7 @@ void TestRandomized
     rhom = Qm_sum_gbl[0]; Qm = Qm_sum_gbl[1]; Qm_max = Qm_sum_gbl[2];
   }
   Real Qm_max_safety = 0;
-  if (safety_problem) {
+  if (safety_problem && v.ncells()) {
     Real q_safety_lcl = v.Qm_max(t.idx)[0] / v.rhom()[0];
     for (Int i = 1; i < v.ncells(); ++i)
       q_safety_lcl = std::max(q_safety_lcl, v.Qm_max(t.idx)[i] / v.rhom()[i]);
@@ -202,9 +202,9 @@ void TestRandomized::init_writer () {
   } else {
     int n = gcis_.size();
     mpi::gather(*p_, &n, 1, static_cast<int*>(nullptr), 0, p_->root());
-    Int* Inull = nullptr;
+    Long* Lnull = nullptr;
     const int* inull = nullptr;
-    mpi::gatherv(*p_, gcis_.data(), gcis_.size(), Inull, inull, inull, p_->root());
+    mpi::gatherv(*p_, gcis_.data(), gcis_.size(), Lnull, inull, inull, p_->root());
   }
   write_inited_ = true;
 }
@@ -273,8 +273,9 @@ void TestRandomized::write_post (const Tracer& t, Values& v) {
 }
 
 Int TestRandomized
-::check (const mpi::Parallel& p, const std::vector<Tracer>& ts, const Values& v) {
-  static const bool details = true;
+::check (const std::string& cdr_name, const mpi::Parallel& p,
+         const std::vector<Tracer>& ts, const Values& v) {
+  static const bool details = false;
   static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
   Int nerr = 0;
   std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
@@ -335,11 +336,11 @@ Int TestRandomized
         if (Qm[i] < q_min*rhom[i]*(1 - ulp3) ||
             Qm[i] > q_max*rhom[i]*(1 + ulp3)) {
           if (details)
-            pr("check q " << t.str() << ": " << q_min*rhom[i] << " " << Qm_min[i] <<
-               " " << Qm[i] << " " << Qm_max[i] << " " << q_max*rhom[i] << " | " <<
-               (Qm[i] < q_min*rhom[i] ?
-                Qm[i] - q_min*rhom[i] :
-                Qm[i] - q_max*rhom[i]));
+            pr("check q (safety) " << t.str() << ": " << q_min*rhom[i] << " "
+               << Qm_min[i] << " " << Qm[i] << " " << Qm_max[i] << " "
+               << q_max*rhom[i] << " | " << (Qm[i] < q_min*rhom[i] ?
+                                             Qm[i] - q_min*rhom[i] :
+                                             Qm[i] - q_max*rhom[i]));
           t_ok[ti] = false;
           ++nerr;
         }
@@ -369,7 +370,7 @@ Int TestRandomized
         t_ok_gbl[ti] = false;
       }
       if ( ! t_ok_gbl[ti]) {
-        std::cout << "FAIL " << ts[ti].str();
+        std::cout << "FAIL " << cdr_name << ": " << ts[ti].str();
         if (mass_failed) std::cout << " mass re " << rd;
         std::cout << "\n";
       }
@@ -380,9 +381,9 @@ Int TestRandomized
 }
   
 TestRandomized
-::TestRandomized (const mpi::Parallel::Ptr& p, const Int& ncells,
-                  const bool verbose)
-  : p_(p), ncells_(ncells), write_inited_(false)
+::TestRandomized (const std::string& name, const mpi::Parallel::Ptr& p,
+                  const Int& ncells, const bool verbose)
+  : cdr_name_(name), p_(p), ncells_(ncells), write_inited_(false)
 {}
 
 void TestRandomized::init () {
@@ -393,20 +394,45 @@ void TestRandomized::init () {
 
 Int TestRandomized::run (const Int nrepeat, const bool write) {
   const Int nt = tracers_.size(), nlclcells = gcis_.size();
+
   Values v(nt, nlclcells);
   generate_rho(v);
   for (const auto& t : tracers_) {
     generate_Q(t, v);
     perturb_Q(t, v);
   }
+
   if (write)
     for (const auto& t : tracers_)
       write_pre(t, v);
-  run_impl(v, nrepeat, write);
+
+  CDR& cdr = get_cdr();
+  {
+    Real* rhom = v.rhom();
+    for (Int i = 0; i < nlclcells; ++i)
+      cdr.set_rhom(i, 0, rhom[i]);
+  }
+  for (Int trial = 0; trial <= nrepeat; ++trial) {
+    for (Int ti = 0; ti < nt; ++ti) {
+      Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
+        * Qm_prev = v.Qm_prev(ti);
+      for (Int i = 0; i < nlclcells; ++i)
+        cdr.set_Qm(i, ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
+    }
+
+    run_impl(trial);
+  }
+
+  for (Int ti = 0; ti < nt; ++ti) {
+    Real* Qm = v.Qm(ti);
+    for (Int i = 0; i < nlclcells; ++i)
+      Qm[i] = cdr.get_Qm(i, ti);
+  }
+
   if (write)
     for (const auto& t : tracers_)
       write_post(t, v);
-  return check(*p_, tracers_, v);
+  return check(cdr_name_, *p_, tracers_, v);
 }
 
 } // namespace test

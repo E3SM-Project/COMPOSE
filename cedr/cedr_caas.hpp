@@ -17,7 +17,7 @@ public:
 public:
   CAAS(const mpi::Parallel::Ptr& p, const Int nlclcells);
 
-  void declare_tracer(int problem_type) override;
+  void declare_tracer(int problem_type, const Int& rhomidx) override;
 
   void end_tracer_declarations() override;
 
@@ -25,9 +25,9 @@ public:
 
   Int get_num_tracers() const override;
 
-  // lclcellidx is trivial, the user's index for the cell.
+  // lclcellidx is trivial; it is the user's index for the cell.
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
 
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
@@ -42,18 +42,31 @@ public:
 private:
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
   typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
+  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
+
+  struct Decl {
+    int probtype;
+    Int rhomidx;
+    Decl (const int probtype_, const Int rhomidx_)
+      : probtype(probtype_), rhomidx(rhomidx_) {}
+  };
 
   mpi::Parallel::Ptr p_;
-  Int nlclcells_, ntracers_;
-  MPI_Datatype datatype_;
-  mpi::Op op_;
+  
+  Int nlclcells_, nrhomidxs_;
+  std::shared_ptr<std::vector<Decl> > tracer_decls_;
+  bool need_conserve_;
+  IntList probs_, t2r_;
   RealList d_, send_, recv_;
 
   void reduce_locally();
   void reduce_globally();
-  void caas();
+  void finish_locally();
 };
 
+namespace test {
+Int unittest(const mpi::Parallel::Ptr& p);
+} // namespace test
 } // namespace caas
 } // namespace cedr
 

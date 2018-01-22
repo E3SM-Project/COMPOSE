@@ -58,15 +58,15 @@ struct Op {
   typedef std::shared_ptr<Op> Ptr;
 
   Op (MPI_User_function* function, bool commute) {
-    MPI_Op_create(function, static_cast<int>(commute), op_);
+    MPI_Op_create(function, static_cast<int>(commute), &op_);
   }
 
-  ~Op () { MPI_Op_free(op_); }
+  ~Op () { MPI_Op_free(&op_); }
 
-  MPI_Op* get () const { return op_; }
+  const MPI_Op& get () const { return op_; }
 
 private:
-  MPI_Op* op_;
+  MPI_Op op_;
 };
 
 } // namespace mpi
