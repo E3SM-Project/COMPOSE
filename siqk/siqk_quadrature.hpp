@@ -566,40 +566,40 @@ public:
                  RawConstArray& weight) const {
     switch (order) {
     case 4:
-      coord = RawConstVec3s(trisym_order4_coord_, 6, 3);
+      coord = RawConstVec3s(trisym_order4_coord_, 6);
       weight = RawConstArray(trisym_order4_weight_, 6);
       break;
     case 6:
-      coord = RawConstVec3s(tritay_order6_coord_, 11, 3);
+      coord = RawConstVec3s(tritay_order6_coord_, 11);
       weight = RawConstArray(tritay_order6_weight_, 11);
       break;
     case 8:
-      coord = RawConstVec3s(trisym_order8_coord_, 16, 3);
+      coord = RawConstVec3s(trisym_order8_coord_, 16);
       weight = RawConstArray(trisym_order8_weight_, 16);
       break;
     case 12:
 #ifdef SIQK_USE_TRITAY12
-      coord = RawConstVec3s(tritay_order12_coord_, 32, 3);
+      coord = RawConstVec3s(tritay_order12_coord_, 32);
       weight = RawConstArray(tritay_order12_weight_, 32);
 #else
-      coord = RawConstVec3s(trisym_order12_coord_, 33, 3);
+      coord = RawConstVec3s(trisym_order12_coord_, 33);
       weight = RawConstArray(trisym_order12_weight_, 33);
 #endif
       break;
     case 14:
-      coord = RawConstVec3s(trisym_order14_coord_, 46, 3);
+      coord = RawConstVec3s(trisym_order14_coord_, 46);
       weight = RawConstArray(trisym_order14_weight_, 46);
       break;
     case 16:
-      coord = RawConstVec3s(tritay_order16_coord_, 55, 3);
+      coord = RawConstVec3s(tritay_order16_coord_, 55);
       weight = RawConstArray(tritay_order16_weight_, 55);
       break;
     case 18:
-      coord = RawConstVec3s(tritay_order18_coord_, 66, 3);
+      coord = RawConstVec3s(tritay_order18_coord_, 66);
       weight = RawConstArray(tritay_order18_weight_, 66);
       break;
     case 20:
-      coord = RawConstVec3s(trisym_order20_coord_, 88, 3);
+      coord = RawConstVec3s(trisym_order20_coord_, 88);
       weight = RawConstArray(trisym_order20_weight_, 88);
       break;
     default:

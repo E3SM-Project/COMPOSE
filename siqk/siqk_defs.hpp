@@ -155,20 +155,20 @@ const_slice (const VT& v, Int i) { return ko::subview(v, i, ko::ALL()); }
 #else
 template <typename VT> KOKKOS_FORCEINLINE_FUNCTION
 typename VT::value_type*
-slice (const VT& v, Int i) { return v.ptr_on_device() + v.dimension_1()*i; }
+slice (const VT& v, Int i) { return v.data() + v.extent(1)*i; }
 
 template <typename VT> KOKKOS_FORCEINLINE_FUNCTION
 typename VT::const_value_type*
-const_slice (const VT& v, Int i) { return v.ptr_on_device() + v.dimension_1()*i; }
+const_slice (const VT& v, Int i) { return v.data() + v.extent(1)*i; }
 #endif
 
 // Number of slices in a 2D array, where each row is a slice.
 template <typename A2D> KOKKOS_FORCEINLINE_FUNCTION
-Int nslices (const A2D& a) { return static_cast<Int>(a.dimension_0()); }
+Int nslices (const A2D& a) { return static_cast<Int>(a.extent(0)); }
 
 // Number of entries in a 2D array's row.
 template <typename A2D> KOKKOS_FORCEINLINE_FUNCTION
-Int szslice (const A2D& a) { return static_cast<Int>(a.dimension_1()); }
+Int szslice (const A2D& a) { return static_cast<Int>(a.extent(1)); }
 
 template <typename V, typename CV>
 KOKKOS_INLINE_FUNCTION
@@ -184,8 +184,19 @@ void resize_and_copy (DV& d, const SV& s,
 }
 
 template <typename DV, typename SV>
-void resize_and_copy (DV& d, const SV& s,
-                      typename std::enable_if<DV::rank == 2>::type* = 0) {
+void resize_and_copy (
+  DV& d, const SV& s,
+  typename std::enable_if<DV::rank == 2 && DV::rank_dynamic == 1>::type* = 0)
+{
+  ko::resize(d, nslices(s));
+  ko::deep_copy(d, s);
+}
+
+template <typename DV, typename SV>
+void resize_and_copy (
+  DV& d, const SV& s,
+  typename std::enable_if<DV::rank == 2 && DV::rank_dynamic == 2>::type* = 0)
+{
   ko::resize(d, nslices(s), szslice(s));
   ko::deep_copy(d, s);
 }
