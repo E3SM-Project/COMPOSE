@@ -236,7 +236,7 @@ private:
     // Get OT's bounding box.
     calc_bb(p, bb_);
     // Get elements' bounding boxes.
-    Vec6s::HostMirror ebbs("ebbs", nslices(e), 6);
+    Vec6s::HostMirror ebbs("ebbs", nslices(e));
     calc_bb(p, e, ebbs);
     // Static element lists for work. Each level has active work space.
     std::vector<Int> buf(max_depth_*nslices(e));
@@ -305,7 +305,7 @@ private:
   void init_static_ds (const DynNodes nodes, const DynIntList& offsets,
                        const DynIntList& elems) {
     {
-      ko::resize(nodes_, nodes.n(), 8);
+      ko::resize(nodes_, nodes.n());
       auto nodes_hm = ko::create_mirror_view(nodes_);
       for (Int i = 0; i < nodes.n(); ++i)
         for (Int j = 0; j < 8; ++j)

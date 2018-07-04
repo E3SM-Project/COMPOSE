@@ -74,7 +74,7 @@ struct InputParser {
 } // namespace cedr
 
 int main (int argc, char** argv) {
-  int nerr = 0;
+  int nerr = 0, retval = 0;
   MPI_Init(&argc, &argv);
   auto p = cedr::mpi::make_parallel(MPI_COMM_WORLD);
   srand(p->rank());
@@ -93,15 +93,17 @@ int main (int argc, char** argv) {
     {
       int gnerr;
       cedr::mpi::reduce(*p, &nerr, &gnerr, 1, MPI_SUM, p->root());
+      retval = gnerr != 0 ? -1 : 0;
       if (p->amroot())
         std::cout << (gnerr != 0 ? "FAIL" : "PASS") << "\n";
     }
   } catch (const std::exception& e) {
     if (p->amroot())
       std::cerr << e.what();
+    retval = -1;
   }
   Kokkos::finalize_all();
   if (nerr) prc(nerr);
   MPI_Finalize();
-  return 0;
+  return retval;
 }

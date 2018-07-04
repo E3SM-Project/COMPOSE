@@ -35,7 +35,7 @@ static void make_planar_mesh (Vec3s::HostMirror& p, Idxs::HostMirror& e,
                               const Int n) {
   const Real d = std::sqrt(0.5);
   ko::resize(e, n*n, 4);
-  ko::resize(p, (n+1)*(n+1), 3);
+  ko::resize(p, (n+1)*(n+1));
   for (Int iy = 0; iy < n+1; ++iy)
     for (Int ix = 0; ix < n+1; ++ix) {
       const auto idx = (n+1)*iy + ix;
@@ -111,9 +111,9 @@ static void remove_unused_vertices (Vec3s::HostMirror& p, Idxs::HostMirror& e,
     for (Int k = 0; k < szslice(e); ++k)
       e(ei,k) -= adjust[e(ei,k)];
   // Remove unused from p.
-  Vec3s::HostMirror pc("copy", nslices(p), szslice(p));
+  Vec3s::HostMirror pc("copy", nslices(p));
   ko::deep_copy(pc, p);
-  ko::resize(p, nslices(p) - rmcnt, szslice(p));
+  ko::resize(p, nslices(p) - rmcnt);
   for (Int i = 0, j = 0; i < nslices(pc); ++i) {
     if (pc(i,0) == unused) continue;
     for (Int k = 0; k < szslice(pc); ++k) p(j,k) = pc(i,k);
@@ -143,11 +143,11 @@ void make_cubesphere_mesh (Vec3s::HostMirror& p, Idxs::HostMirror& e,
   Idxs::HostMirror& e_ref = es[0];
   make_planar_mesh(p_ref, e_ref, n);
   ko::resize(e, 6*nslices(e_ref), 4);
-  ko::resize(p, 6*nslices(p_ref), 3);
+  ko::resize(p, 6*nslices(p_ref));
   for (Int i = 1; i < 6; ++i) {
     ko::resize(es[i], nslices(e_ref), 4);
     ko::deep_copy(es[i], e_ref);
-    ko::resize(ps[i], nslices(p_ref), 3);
+    ko::resize(ps[i], nslices(p_ref));
     ko::deep_copy(ps[i], p_ref);
     transform_planar_mesh(R[i], xlate[i], ps[i]);
   }
@@ -366,17 +366,17 @@ static Real calc_true_area (
   const ConstVec3s::HostMirror& p, const ConstIdxs::HostMirror& e,
   const bool wm)
 {
-  Vec3s::HostMirror clip_poly("clip_poly", 4, 3), poly("poly", 4, 3),
-    nml("nml", 4, 3);
+  Vec3s::HostMirror clip_poly("clip_poly", 4), poly("poly", 4),
+    nml("nml", 4);
   fill_quad(cp, clip_poly);
   fill_quad(p, poly);
   for (Int i = 0; i < 4; ++i)
     Geo::edge_normal(slice(clip_poly, i), slice(clip_poly, (i+1) % 4),
                      slice(nml, i));
-  Vec3s::HostMirror vo("vo", test::max_nvert, 3);
+  Vec3s::HostMirror vo("vo", test::max_nvert);
   Int no;
   {
-    Vec3s::HostMirror wrk("wrk", test::max_nvert, 3);
+    Vec3s::HostMirror wrk("wrk", test::max_nvert);
     sh::clip_against_poly<Geo>(clip_poly, nml, poly, 4, vo, no, wrk);
   }
   if (wm) {

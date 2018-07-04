@@ -195,7 +195,7 @@ void fill_normals (sh::Mesh<ko::HostSpace>& m) {
   // Fill.
   Idxs::HostMirror en("en", nslices(m.e), szslice(m.e));
   ko::deep_copy(en, -1);
-  Vec3s::HostMirror nml("nml", ne, 3);
+  Vec3s::HostMirror nml("nml", ne);
   Int ie = 0;
   for (Int ip = 0; ip < nslices(m.e); ++ip)
     for (Int iv = 0; iv < szslice(m.e); ++iv)
@@ -248,9 +248,9 @@ public:
       // In and out vertex lists.
       Real buf[9*max_nvert];
       RawVec3s
-        vi(buf, max_nvert, 3),
-        vo(buf + 3*max_nvert, max_nvert, 3),
-        wrk(buf + 6*max_nvert, max_nvert, 3);
+        vi(buf, max_nvert),
+        vo(buf + 3*max_nvert, max_nvert),
+        wrk(buf + 6*max_nvert, max_nvert);
       Int ni;
       ni = 0;
       for (Int i = 0; i < szslice(e_); ++i) {
