@@ -1,5 +1,4 @@
-# COMPOSE
-Compact Multi-moment Performance-Portable Semi-Lagrangian methods
+COMPOSE: Compact Multi-moment Performance-Portable Semi-Lagrangian methods
 
 COMPOSE provides libraries for semi-Lagrangian transport and, together or
 separately, property preservation.
