@@ -6,8 +6,10 @@ namespace cedr {
 namespace caas {
 
 template <typename ES>
-CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells)
-  : p_(p), nlclcells_(nlclcells), nrhomidxs_(0), need_conserve_(false)
+CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells,
+                const typename UserAllReducer::Ptr& uar)
+  : p_(p), user_reducer_(uar), nlclcells_(nlclcells), nrhomidxs_(0),
+    need_conserve_(false)
 {
   cedr_throw_if(nlclcells == 0, "CAAS does not support 0 cells on a rank.");
   tracer_decls_ = std::make_shared<std::vector<Decl> >();  
@@ -40,7 +42,7 @@ void CAAS<ES>::end_tracer_declarations () {
   d_ = RealList("CAAS data", nlclcells_ * ((3+e)*probs_.size() + 1));
   const auto nslots = 4*probs_.size();
   // (e'Qm_clip, e'Qm, e'Qm_min, e'Qm_max, [e'Qm_prev])
-  send_ = RealList("CAAS send", nslots);
+  send_ = RealList("CAAS send", nslots*(user_reducer_ ? nlclcells_ : 1));
   recv_ = RealList("CAAS recv", nslots);
 }
 
@@ -57,6 +59,7 @@ Int CAAS<ES>::get_num_tracers () const {
 
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
+  const bool user_reduces = user_reducer_ != nullptr;
   const Int nt = probs_.size();
   Int k = 0;
   Int os = nlclcells_;
@@ -65,33 +68,47 @@ void CAAS<ES>::reduce_locally () {
     Real Qm_sum = 0, Qm_clip_sum = 0;
     for (Int i = 0; i < nlclcells_; ++i) {
       const Real Qm = d_(os+i);
-      Qm_sum += (probs_(k) & ProblemType::conserve ?
-                 d_(os + nlclcells_*3*nt + i) /* Qm_prev */ :
-                 Qm);
+      const Real Qm_term = (probs_(k) & ProblemType::conserve ?
+                            d_(os + nlclcells_*3*nt + i) /* Qm_prev */ :
+                            Qm);
       const Real Qm_min = d_(os + nlclcells_*  nt + i);
       const Real Qm_max = d_(os + nlclcells_*2*nt + i);
       const Real Qm_clip = cedr::impl::min(Qm_max, cedr::impl::max(Qm_min, Qm));
-      Qm_clip_sum += Qm_clip;
       d_(os+i) = Qm_clip;
+      if (user_reduces) {
+        send_(nlclcells_*      k  + i) = Qm_clip;
+        send_(nlclcells_*(nt + k) + i) = Qm_term;
+      } else {
+        Qm_clip_sum += Qm_clip;
+        Qm_sum += Qm_term;
+      }
     }
-    send_(     k) = Qm_clip_sum;
-    send_(nt + k) = Qm_sum;
+    if ( ! user_reduces) {
+      send_(     k) = Qm_clip_sum;
+      send_(nt + k) = Qm_sum;
+    }
     os += nlclcells_;
   }
   k += nt;
   // Qm_min, Qm_max
   for ( ; k < 4*nt; ++k) {
-    Real accum = 0;
-    for (Int i = 0; i < nlclcells_; ++i)
-      accum += d_(os+i);
-    send_(k) = accum;
+    if (user_reduces) {
+      for (Int i = 0; i < nlclcells_; ++i)
+        send_(nlclcells_*k + i) = d_(os+i);
+    } else {
+      Real accum = 0;
+      for (Int i = 0; i < nlclcells_; ++i)
+        accum += d_(os+i);
+      send_(k) = accum;
+    }
     os += nlclcells_;
   }
 }
 
 template <typename ES>
 void CAAS<ES>::reduce_globally () {
-  int err = mpi::all_reduce(*p_, send_.data(), recv_.data(), send_.size(), MPI_SUM);
+  const int err = mpi::all_reduce(*p_, send_.data(), recv_.data(),
+                                  send_.size(), MPI_SUM);
   cedr_throw_if(err != MPI_SUCCESS,
                 "CAAS::reduce_globally MPI_Allreduce returned " << err);
 }
@@ -110,7 +127,7 @@ void CAAS<ES>::finish_locally () {
       if (fac > 0) {
         fac = m/fac;
         for (Int i = 0; i < nlclcells_; ++i) {
-          const Real Qm_min = d_(os + nlclcells_*  nt + i);
+          const Real Qm_min = d_(os + nlclcells_ * nt + i);
           Real& Qm = d_(os+i);
           Qm += fac*(Qm - Qm_min);
         }
@@ -134,7 +151,11 @@ void CAAS<ES>::finish_locally () {
 template <typename ES>
 void CAAS<ES>::run () {
   reduce_locally();
-  reduce_globally();
+  if (user_reducer_)
+    (*user_reducer_)(*p_, send_.data(), recv_.data(),
+                     nlclcells_, recv_.size(), MPI_SUM);
+  else
+    reduce_globally();
   finish_locally();
 }
 
@@ -142,7 +163,22 @@ namespace test {
 struct TestCAAS : public cedr::test::TestRandomized {
   typedef CAAS<Kokkos::DefaultExecutionSpace> CAAST;
 
-  TestCAAS (const mpi::Parallel::Ptr& p, const Int& ncells, const bool verbose)
+  struct TestAllReducer : public CAAST::UserAllReducer {
+    int operator() (const mpi::Parallel& p, Real* sendbuf, Real* rcvbuf,
+                    int nlcl, int count, MPI_Op op) const override {
+      for (int i = 1; i < nlcl; ++i)
+        sendbuf[0] += sendbuf[i];
+      for (int k = 1; k < count; ++k) {
+        sendbuf[k] = sendbuf[nlcl*k];
+        for (int i = 1; i < nlcl; ++i)
+          sendbuf[k] += sendbuf[nlcl*k + i];
+      }
+      return mpi::all_reduce(p, sendbuf, rcvbuf, count, op);
+    }
+  };
+
+  TestCAAS (const mpi::Parallel::Ptr& p, const Int& ncells,
+            const bool use_own_reducer, const bool verbose)
     : TestRandomized("CAAS", p, ncells, verbose),
       p_(p)
   {
@@ -150,7 +186,9 @@ struct TestCAAS : public cedr::test::TestRandomized {
     nlclcells_ = ncells / np;
     const Int todo = ncells - nlclcells_ * np;
     if (rank < todo) ++nlclcells_;
-    caas_ = std::make_shared<CAAST>(p, nlclcells_);
+    caas_ = std::make_shared<CAAST>(
+      p, nlclcells_,
+      use_own_reducer ? std::make_shared<TestAllReducer>() : nullptr);
     init();
   }
 
@@ -205,7 +243,8 @@ Int unittest (const mpi::Parallel::Ptr& p) {
   for (Int nlclcells : {1, 2, 4, 11}) {
     Long ncells = np*nlclcells;
     if (ncells > np) ncells -= np/2;
-    nerr += TestCAAS(p, ncells, false).run(1, false);
+    nerr += TestCAAS(p, ncells, false, false).run(1, false);
+    nerr += TestCAAS(p, ncells, true, false).run(1, false);
   }
   return nerr;
 }

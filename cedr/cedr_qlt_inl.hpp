@@ -38,7 +38,7 @@ void QLT<ES>::set_Qm (const Int& lclcellidx, const Int& tracer_idx,
       cedr_kernel_throw_if(true, "set_Q: invalid problem_type.");
     }
     if (problem_type & ProblemType::conserve) {
-      cedr_kernel_throw_if(Qm_prev < -0.5,
+      cedr_kernel_throw_if(Qm_prev == std::numeric_limits<Real>::infinity(),
                            "Qm_prev was not provided to set_Q.");
       bd[3] = Qm_prev;
     }

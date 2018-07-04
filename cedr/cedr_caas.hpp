@@ -15,7 +15,22 @@ public:
   typedef std::shared_ptr<Me> Ptr;
 
 public:
-  CAAS(const mpi::Parallel::Ptr& p, const Int nlclcells);
+  struct UserAllReducer {
+    typedef std::shared_ptr<const UserAllReducer> Ptr;
+    virtual int operator()(const mpi::Parallel& p,
+                           // In Fortran, these are formatted as
+                           //   sendbuf(nlocal, nfld)
+                           //   rcvbuf(nfld)
+                           // The implementation is permitted to modify sendbuf.
+                           Real* sendbuf, Real* rcvbuf,
+                           // nlocal is number of values to reduce in this rank.
+                           // nfld is number of fields.
+                           int nlocal, int nfld,
+                           MPI_Op op) const = 0;
+  };
+
+  CAAS(const mpi::Parallel::Ptr& p, const Int nlclcells,
+       const typename UserAllReducer::Ptr& r = nullptr);
 
   void declare_tracer(int problem_type, const Int& rhomidx) override;
 
@@ -32,14 +47,14 @@ public:
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
               const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = -1) override;
+              const Real Qm_prev = std::numeric_limits<Real>::infinity()) override;
 
   void run() override;
 
   KOKKOS_INLINE_FUNCTION
   Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
 
-private:
+protected:
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
   typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
@@ -52,7 +67,8 @@ private:
   };
 
   mpi::Parallel::Ptr p_;
-  
+  typename UserAllReducer::Ptr user_reducer_;
+
   Int nlclcells_, nrhomidxs_;
   std::shared_ptr<std::vector<Decl> > tracer_decls_;
   bool need_conserve_;

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <list>
 
 #include "cedr_cdr.hpp"
 
@@ -17,7 +18,80 @@ namespace cedr {
 namespace qlt {
 using cedr::mpi::Parallel;
 
-namespace impl { class NodeSets; }
+namespace impl {
+struct NodeSets {
+  typedef std::shared_ptr<const NodeSets> ConstPtr;
+  
+  enum : int { mpitag = 42 };
+
+  // A node in the tree that is relevant to this rank.
+  struct Node {
+    // Rank of the node. If the node is in a level, then its rank is my rank. If
+    // it's not in a level, then it is a comm partner of a node on this rank.
+    Int rank;
+    // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
+    Int id;
+    // This node's parent, a comm partner, if such a partner is required.
+    const Node* parent;
+    // This node's kids, comm partners, if such partners are required. Parent
+    // and kid nodes are pruned relative to the full tree over the mesh to
+    // contain just the nodes that matter to this rank.
+    Int nkids;
+    const Node* kids[2];
+    // Offset factor into bulk data. An offset is a unit; actual buffer sizes
+    // are multiples of this unit.
+    Int offset;
+
+    Node () : rank(-1), id(-1), parent(nullptr), nkids(0), offset(-1) {}
+  };
+
+  // A level in the level schedule that is constructed to orchestrate
+  // communication. A node in a level depends only on nodes in lower-numbered
+  // levels (l2r) or higher-numbered (r2l).
+  //
+  // The communication patterns are as follows:
+  //   > l2r
+  //   MPI rcv into kids
+  //   sum into node
+  //   MPI send from node
+  //   > r2l
+  //   MPI rcv into node
+  //   solve QP for kids
+  //   MPI send from kids
+  struct Level {
+    struct MPIMetaData {
+      Int rank;   // Rank of comm partner.
+      Int offset; // Offset to start of buffer for this comm.
+      Int size;   // Size of this buffer in units of offsets.
+    };
+    
+    // The nodes in the level.
+    std::vector<Node*> nodes;
+    // MPI information for this level.
+    std::vector<MPIMetaData> me, kids;
+    // Have to keep requests separate so we can call waitall if we want to.
+    mutable std::vector<mpi::Request> me_send_req, me_recv_req, kids_req;
+  };
+  
+  // Levels. nodes[0] is level 0, the leaf level.
+  std::vector<Level> levels;
+  // Number of data slots this rank needs. Each node owned by this rank, plus
+  // kids on other ranks, have an associated slot.
+  Int nslots;
+  
+  // Allocate a node. The list node_mem_ is the mechanism for memory ownership;
+  // node_mem_ isn't used for anything other than owning nodes.
+  Node* alloc () {
+    node_mem_.push_front(Node());
+    return &node_mem_.front();
+  }
+
+  void print(std::ostream& os) const;
+  
+private:
+  std::list<Node> node_mem_;
+};
+} // namespace impl
 
 namespace tree {
 // The caller builds a tree of these nodes to pass to QLT.
@@ -45,7 +119,9 @@ public:
   typedef QLT<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
   
-  // Set up QLT topology and communication data structures based on a tree.
+  // Set up QLT topology and communication data structures based on a tree. Both
+  // ncells and tree refer to the global mesh, not just this processor's
+  // part. The tree must be identical across ranks.
   QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
 
   void print(std::ostream& os) const override;
@@ -80,14 +156,14 @@ public:
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
               const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = -1) override;
+              const Real Qm_prev = std::numeric_limits<Real>::infinity()) override;
 
   void run() override;
 
   KOKKOS_INLINE_FUNCTION
   Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
 
-private:
+protected:
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
   typedef cedr::impl::Const<IntList> ConstIntList;
   typedef cedr::impl::ConstUnmanaged<IntList> ConstUnmanagedIntList;
@@ -181,7 +257,7 @@ private:
     RealList l2r_data_, r2l_data_;
   };
 
-private:
+protected:
   void init(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
 
   void init_ordinals();
@@ -192,7 +268,6 @@ private:
                                  const Real& rhom0, const Real* k0d, Real& Qm0,
                                  const Real& rhom1, const Real* k1d, Real& Qm1);
 
-private:
   Parallel::Ptr p_;
   // Tree and communication topology.
   std::shared_ptr<const impl::NodeSets> ns_;
@@ -214,6 +289,14 @@ struct Input {
 };
 
 Int run_unit_and_randomized_tests(const Parallel::Ptr& p, const Input& in);
+
+Int test_qlt(const Parallel::Ptr& p, const tree::Node::Ptr& tree, const Int& ncells,
+             const Int nrepeat = 1,
+             // Diagnostic output for dev and illustration purposes. To be
+             // clear, no QLT unit test requires output to be checked; each
+             // checks in-memory data and returns a failure count.
+             const bool write = false,
+             const bool verbose = false);
 } // namespace test
 } // namespace qlt
 } // namespace cedr

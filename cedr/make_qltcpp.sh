@@ -8,3 +8,4 @@
     echo ""
 done) > qlt.cpp
 sed sV'#include "cedr'V'//#include "cedr'V -i qlt.cpp
+sed sV'#include "compose'V'//#include "compose'V -i qlt.cpp

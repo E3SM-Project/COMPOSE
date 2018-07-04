@@ -19,22 +19,28 @@ int all_reduce (const Parallel& p, const T* sendbuf, T* rcvbuf, int count, MPI_O
 
 template <typename T>
 int isend (const Parallel& p, const T* buf, int count, int dest, int tag,
-           MPI_Request* ireq) {
+           Request* ireq) {
   MPI_Datatype dt = get_type<T>();
   MPI_Request ureq;
-  MPI_Request* req = ireq ? ireq : &ureq;
+  MPI_Request* req = ireq ? &ireq->request : &ureq;
   int ret = MPI_Isend(const_cast<T*>(buf), count, dt, dest, tag, p.comm(), req);
   if ( ! ireq) MPI_Request_free(req);
+#ifdef COMPOSE_DEBUG_MPI
+  else ireq->unfreed++;
+#endif
   return ret;
 }
 
 template <typename T>
-int irecv (const Parallel& p, T* buf, int count, int src, int tag, MPI_Request* ireq) {
+int irecv (const Parallel& p, T* buf, int count, int src, int tag, Request* ireq) {
   MPI_Datatype dt = get_type<T>();
   MPI_Request ureq;
-  MPI_Request* req = ireq ? ireq : &ureq;
+  MPI_Request* req = ireq ? &ireq->request : &ureq;
   int ret = MPI_Irecv(buf, count, dt, src, tag, p.comm(), req);
   if ( ! ireq) MPI_Request_free(req);
+#ifdef COMPOSE_DEBUG_MPI
+  else ireq->unfreed++;
+#endif
   return ret;
 }
 

@@ -1,0 +1,7 @@
+#ifndef COMPOSE_CONFIG_H
+#define COMPOSE_CONFIG_H
+
+// If defined, insert debug code into MPI wrappers.
+#cmakedefine COMPOSE_DEBUG_MPI
+
+#endif // COMPOSE_CONFIG_H

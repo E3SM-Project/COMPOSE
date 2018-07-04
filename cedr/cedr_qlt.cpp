@@ -7,7 +7,6 @@
 #include <cmath>
 
 #include <set>
-#include <list>
 #include <limits>
 #include <algorithm>
 
@@ -74,79 +73,6 @@ int Timer::cnt_[Timer::NTIMERS];
 #endif
 
 namespace impl {
-struct NodeSets {
-  typedef std::shared_ptr<const NodeSets> ConstPtr;
-  
-  enum : int { mpitag = 42 };
-
-  // A node in the tree that is relevant to this rank.
-  struct Node {
-    // Rank of the node. If the node is in a level, then its rank is my rank. If
-    // it's not in a level, then it is a comm partner of a node on this rank.
-    Int rank;
-    // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
-    Int id;
-    // This node's parent, a comm partner, if such a partner is required.
-    const Node* parent;
-    // This node's kids, comm partners, if such partners are required. Parent
-    // and kid nodes are pruned relative to the full tree over the mesh to
-    // contain just the nodes that matter to this rank.
-    Int nkids;
-    const Node* kids[2];
-    // Offset factor into bulk data. An offset is a unit; actual buffer sizes
-    // are multiples of this unit.
-    Int offset;
-
-    Node () : rank(-1), id(-1), parent(nullptr), nkids(0), offset(-1) {}
-  };
-
-  // A level in the level schedule that is constructed to orchestrate
-  // communication. A node in a level depends only on nodes in lower-numbered
-  // levels (l2r) or higher-numbered (r2l).
-  //
-  // The communication patterns are as follows:
-  //   > l2r
-  //   MPI rcv into kids
-  //   sum into node
-  //   MPI send from node
-  //   > r2l
-  //   MPI rcv into node
-  //   solve QP for kids
-  //   MPI send from kids
-  struct Level {
-    struct MPIMetaData {
-      Int rank;   // Rank of comm partner.
-      Int offset; // Offset to start of buffer for this comm.
-      Int size;   // Size of this buffer in units of offsets.
-    };
-    
-    // The nodes in the level.
-    std::vector<Node*> nodes;
-    // MPI information for this level.
-    std::vector<MPIMetaData> me, kids;
-    // Have to keep requests separate so we can call waitall if we want to.
-    mutable std::vector<MPI_Request> me_req, kids_req;
-  };
-  
-  // Levels. nodes[0] is level 0, the leaf level.
-  std::vector<Level> levels;
-  // Number of data slots this rank needs. Each node owned by this rank, plus
-  // kids on other ranks, have an associated slot.
-  Int nslots;
-  
-  // Allocate a node. The list node_mem_ is the mechanism for memory ownership;
-  // node_mem_ isn't used for anything other than owning nodes.
-  Node* alloc () {
-    node_mem_.push_front(Node());
-    return &node_mem_.front();
-  }
-
-  void print(std::ostream& os) const;
-  
-private:
-  std::list<Node> node_mem_;
-};
-
 void NodeSets::print (std::ostream& os) const {
   std::stringstream ss;
   if (levels.empty()) return;
@@ -176,18 +102,18 @@ void NodeSets::print (std::ostream& os) const {
 }
 
 // Find tree depth, assign ranks to non-leaf nodes, and init 'reserved'.
-Int init_tree (const tree::Node::Ptr& node, Int& id) {
+Int init_tree (const Int& my_rank, const tree::Node::Ptr& node, Int& id) {
   node->reserved = nullptr;
   Int depth = 0;
   for (Int i = 0; i < node->nkids; ++i) {
     cedr_assert(node.get() == node->kids[i]->parent);
-    depth = std::max(depth, init_tree(node->kids[i], id));
+    depth = std::max(depth, init_tree(my_rank, node->kids[i], id));
   }
   if (node->nkids) {
     node->rank = node->kids[0]->rank;
     node->cellidx = id++;
   } else {
-    cedr_throw_if(node->cellidx < 0 || node->cellidx >= id,
+    cedr_throw_if(node->rank == my_rank && node->cellidx < 0 || node->cellidx >= id,
                   "cellidx is " << node->cellidx << " but should be between " <<
                   0 << " and " << id);
   }
@@ -336,7 +262,8 @@ void init_comm (const Int my_rank, NodeSets& ns) {
     }
 
     init_offsets(my_rank, me, lvl.me, ns.nslots);
-    lvl.me_req.resize(lvl.me.size());
+    lvl.me_send_req.resize(lvl.me.size());
+    lvl.me_recv_req.resize(lvl.me.size());
     init_offsets(my_rank, kids, lvl.kids, ns.nslots);
     lvl.kids_req.resize(lvl.kids.size());
   }
@@ -355,7 +282,7 @@ NodeSets::ConstPtr analyze (const Parallel::Ptr& p, const Int& ncells,
   const auto nodesets = std::make_shared<NodeSets>();
   cedr_assert( ! tree->parent);
   Int id = ncells;
-  const Int depth = init_tree(tree, id);
+  const Int depth = init_tree(p->rank(), tree, id);
   nodesets->levels.resize(depth);
   level_schedule_and_collect(*nodesets, p->rank(), tree);
   consolidate(*nodesets);
@@ -421,7 +348,6 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
       mpi::irecv(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag,
                  &lvl.kids_req[i]);
     }
-    //todo Replace with simultaneous waitany and isend.
     mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
     // Combine kids' data.
     for (auto& n : lvl.nodes) {
@@ -433,11 +359,8 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     // Send to parents.
     for (size_t i = 0; i < lvl.me.size(); ++i) {
       const auto& mmd = lvl.me[i];
-      mpi::isend(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag,
-                 &lvl.me_req[i]);
+      mpi::isend(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag);
     }
-    if (il+1 == ns->levels.size())
-      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
   }
   // Root to leaves.
   for (size_t il = ns->levels.size(); il > 0; --il) {
@@ -446,10 +369,9 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     for (size_t i = 0; i < lvl.me.size(); ++i) {
       const auto& mmd = lvl.me[i];
       mpi::irecv(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag,
-                 &lvl.me_req[i]);
+                 &lvl.me_recv_req[i]);
     }    
-    //todo Replace with simultaneous waitany and isend.
-    mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
+    mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
     // Pass to kids.
     for (auto& n : lvl.nodes) {
       if ( ! n->nkids) continue;
@@ -459,16 +381,8 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     // Send.
     for (size_t i = 0; i < lvl.kids.size(); ++i) {
       const auto& mmd = lvl.kids[i];
-      mpi::isend(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag,
-                 &lvl.kids_req[i]);
+      mpi::isend(*p, &data[mmd.offset], mmd.size, mmd.rank, NodeSets::mpitag);
     }
-  }
-  // Wait on sends to clean up.
-  for (size_t il = 0; il < ns->levels.size(); ++il) {
-    auto& lvl = ns->levels[il];
-    if (il+1 < ns->levels.size())
-      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
-    mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
   }
   { // Check that all leaf nodes have the right number.
     const Int desired_sum = (ncells*(ncells - 1)) / 2;
@@ -490,7 +404,8 @@ Int unittest (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
   if (nerr) return nerr;
   nerr += check_leaf_nodes(p, ns, ncells);
   if (nerr) return nerr;
-  nerr += test_comm_pattern(p, ns, ncells);
+  for (Int trial = 0; trial < 11; ++trial)
+    nerr += test_comm_pattern(p, ns, ncells);
   if (nerr) return nerr;
   return nerr;
 }
@@ -738,12 +653,7 @@ void QLT<ES>::run () {
       for (size_t i = 0; i < lvl.me.size(); ++i) {
         const auto& mmd = lvl.me[i];
         mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.me_req[i]);
-      }
-      if (il+1 == ns_->levels.size()) {
-        Timer::start(Timer::waitall);
-        mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
-        Timer::stop(Timer::waitall);
+                   NodeSets::mpitag);
       }
     }
   }
@@ -782,11 +692,11 @@ void QLT<ES>::run () {
       for (size_t i = 0; i < lvl.me.size(); ++i) {
         const auto& mmd = lvl.me[i];
         mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.me_req[i]);
+                   NodeSets::mpitag, &lvl.me_recv_req[i]);
       }
       //todo Replace with simultaneous waitany and isend.
       Timer::start(Timer::waitall);
-      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
+      mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
       Timer::stop(Timer::waitall);
     }
     // Solve QP for kids' values.
@@ -837,15 +747,8 @@ void QLT<ES>::run () {
       for (size_t i = 0; i < lvl.kids.size(); ++i) {
         const auto& mmd = lvl.kids[i];
         mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.kids_req[i]);
+                   NodeSets::mpitag);
       }
-  }
-  // Wait on sends to clean up.
-  for (size_t il = 0; il < ns_->levels.size(); ++il) {
-    auto& lvl = ns_->levels[il];
-    if (il+1 < ns_->levels.size())
-      mpi::waitall(lvl.me_req.size(), lvl.me_req.data());
-    mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
   }
   Timer::stop(Timer::qltrunr2l);
 }
@@ -929,13 +832,9 @@ private:
 };
 
 // Test all QLT variations and situations.
-Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree, const Int& ncells,
-              const Int nrepeat = 1,
-              // Diagnostic output for dev and illustration purposes. To be
-              // clear, no QLT unit test requires output to be checked; each
-              // checks in-memory data and returns a failure count.
-              const bool write = false,
-              const bool verbose = false) {
+Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
+              const Int& ncells, const Int nrepeat,
+              const bool write, const bool verbose) {
   return TestQLT(p, tree, ncells, verbose).run(nrepeat, write);
 }
 } // namespace test
