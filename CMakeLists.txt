@@ -7,10 +7,10 @@ function (prc var)
   message ("${var}: ${${var}}")
 endfunction ()
 
-find_package (MPI REQUIRED)
+set (COMPOSE_DEBUG_MPI FALSE CACHE LOGICAL "If true, insert debugging code into MPI wrappers.")
 
 if (Kokkos_DIR)
-  include (${Kokkos_DIR}/kokkos.cmake)
+  include (${Kokkos_DIR}/kokkos_generated_settings.cmake)
   set (Kokkos_INCLUDE ${Kokkos_DIR}/include)
 else ()
   message (FATAL_ERROR "COMPOSE requires Kokkos_DIR")
@@ -47,23 +47,42 @@ set (HEADERS
   siqk/siqk_intersect.hpp
   siqk/siqk_quadrature.hpp
   siqk/siqk_search.hpp
-  siqk/siqk_sqr.hpp)
+  siqk/siqk_sqr.hpp
+  share/compose_config.hpp)
 
 if (NOT COMPOSE_TEST_MPIRUN)
   set (COMPOSE_TEST_MPIRUN mpirun)
+  set (COMPOSE_TEST_MPIFLAGS)
 endif ()
 if (NOT COMPOSE_TEST_NRANK)
   set (COMPOSE_TEST_NRANK 8)
 endif ()
 
-set (COMPOSE_COMPILE_FLAGS "${MPI_COMPILE_FLAGS} ${KOKKOS_CXXFLAGS} ${CMAKE_CXX_FLAGS}")
-set (COMPOSE_LINK_FLAGS "${MPI_LINK_FLAGS} ${KOKKOS_LDFLAGS}")
-set (COMPOSE_INCLUDES "${Kokkos_INCLUDE}")
-set (COMPOSE_LIBRARIES ${MPI_LIBRARIES} ${KOKKOS_LIBS})
+string (TOLOWER "${CMAKE_BUILD_TYPE}" cmake_build_type_str)
+set (DEBUG_BUILD FALSE)
+if ("${cmake_build_type_str}" STREQUAL "debug")
+  set (DEBUG_BUILD TRUE)
+endif ()
 
-prc(MPI_COMPILE_FLAGS)
-prc(MPI_LINK_FLAGS)
-prc(MPI_LIBRARIES)
+if (DEBUG_BUILD)
+  message ("Enable COMPOSE_DEBUG_MPI because build type is DEBUG.")
+  set (COMPOSE_DEBUG_MPI TRUE)
+endif ()
+
+set (COMPOSE_COMPILE_FLAGS "-g ${KOKKOS_LINK_FLAGS} ${CMAKE_CXX_FLAGS}")
+set (COMPOSE_LINK_FLAGS "-L${Kokkos_DIR}/lib ${KOKKOS_LINK_FLAGS}")
+set (COMPOSE_INCLUDES ${Kokkos_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/share ${CMAKE_BINARY_DIR}/config)
+set (COMPOSE_LIBRARIES ${KOKKOS_LIBS_LIST})
+
+prc (COMPOSE_COMPILE_FLAGS)
+prc (COMPOSE_LINK_FLAGS)
+prc (COMPOSE_INCLUDES)
+prc (COMPOSE_LIBRARIES)
+prc (COMPOSE_DEBUG_MPI)
+
+add_definitions (-DCOMPOSE_CONFIG_IS_CMAKE)
+configure_file (${CMAKE_CURRENT_SOURCE_DIR}/compose_config.h.in ${CMAKE_BINARY_DIR}/config/compose_config.h)
+
 add_library (${PROJECT_NAME} ${SOURCES})
 set_target_properties (${PROJECT_NAME} PROPERTIES
   COMPILE_FLAGS ${COMPOSE_COMPILE_FLAGS}

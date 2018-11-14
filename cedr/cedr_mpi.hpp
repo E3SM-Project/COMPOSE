@@ -5,6 +5,7 @@
 
 #include <mpi.h>
 
+#include "compose_config.hpp"
 #include "cedr.hpp"
 
 namespace cedr {
@@ -22,6 +23,16 @@ public:
   bool amroot () const { return rank() == root(); }
 };
 
+struct Request {
+  MPI_Request request;
+
+#ifdef COMPOSE_DEBUG_MPI
+  int unfreed;
+  Request();
+  ~Request();
+#endif
+};
+
 Parallel::Ptr make_parallel(MPI_Comm comm);
 
 template <typename T> MPI_Datatype get_type();
@@ -35,14 +46,15 @@ int all_reduce(const Parallel& p, const T* sendbuf, T* rcvbuf, int count, MPI_Op
 
 template <typename T>
 int isend(const Parallel& p, const T* buf, int count, int dest, int tag,
-          MPI_Request* ireq);
+          Request* ireq = nullptr);
 
 template <typename T>
-int irecv(const Parallel& p, T* buf, int count, int src, int tag, MPI_Request* ireq);
+int irecv(const Parallel& p, T* buf, int count, int src, int tag,
+          Request* ireq = nullptr);
 
-int waitany(int count, MPI_Request* reqs, int* index, MPI_Status* stats = nullptr);
+int waitany(int count, Request* reqs, int* index, MPI_Status* stats = nullptr);
 
-int waitall(int count, MPI_Request* reqs, MPI_Status* stats = nullptr);
+int waitall(int count, Request* reqs, MPI_Status* stats = nullptr);
 
 template<typename T>
 int gather(const Parallel& p, const T* sendbuf, int sendcount,

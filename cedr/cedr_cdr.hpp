@@ -51,7 +51,7 @@ struct CDR {
     const Real& Qm_min, const Real& Qm_max,
     // If mass conservation is requested, provide the previous Qm, which will be
     // summed to give the desired global mass.
-    const Real Qm_prev = -1) = 0;
+    const Real Qm_prev = std::numeric_limits<Real>::infinity()) = 0;
 
   // Run the QLT algorithm with the values set by set_{rho,Q}. It is an error to
   // call this function from a parallel region.
