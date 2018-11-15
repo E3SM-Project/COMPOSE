@@ -4,7 +4,7 @@ COMPOSE provides libraries for semi-Lagrangian transport and, together or
 separately, property preservation.
 
 CEDR: Communication-Efficient Constrained Density Reconstructors.
-SIQK: Sphereical Polygon Intersection and Quadrature.
+SIQK: Spherical Polygon Intersection and Quadrature.
 
 First, install Kokkos:
     https://github.com/kokkos/kokkos
