@@ -10,7 +10,7 @@ namespace impl {
 KOKKOS_INLINE_FUNCTION
 Real calc_r_tol (const Real b, const Real* a, const Real* y, const Int n) {
   Real ab = std::abs(b);
-  for (Int i = 0; i < n; ++i) ab = std::max(ab, std::abs(a[i]*y[i]));
+  for (Int i = 0; i < n; ++i) ab = cedr::impl::max(ab, std::abs(a[i]*y[i]));
   return 1e1*std::numeric_limits<Real>::epsilon()*std::abs(ab);
 }
 
@@ -152,7 +152,7 @@ Int solve_1eq_bc_qp_2d (const Real* w, const Real* a, const Real b,
     x[1] = x_base[1] + alpha*x_dir[1];
     clipidx = 1;
     break;
-  default: cedr_assert(0); info = -2;
+  default: cedr_kernel_assert(0); info = -2;
   }
   x[clipidx] = cedr::impl::min(xhi[clipidx], cedr::impl::max(xlo[clipidx], x[clipidx]));
   return info;

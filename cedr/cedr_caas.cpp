@@ -251,3 +251,13 @@ Int unittest (const mpi::Parallel::Ptr& p) {
 } // namespace test
 } // namespace caas
 } // namespace cedr
+
+#ifdef KOKKOS_HAVE_SERIAL
+template class cedr::caas::CAAS<Kokkos::Serial>;
+#endif
+#ifdef KOKKOS_HAVE_OPENMP
+template class cedr::caas::CAAS<Kokkos::OpenMP>;
+#endif
+#ifdef KOKKOS_HAVE_CUDA
+template class cedr::caas::CAAS<Kokkos::Cuda>;
+#endif
