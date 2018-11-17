@@ -5,6 +5,10 @@
 
 #define KIF KOKKOS_INLINE_FUNCTION
 
+// Clarify that a class member type is meant to be private but is
+// marked public for Cuda visibility.
+#define PRIVATE_CUDA public
+
 namespace cedr {
 namespace impl {
 

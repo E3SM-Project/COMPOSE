@@ -76,6 +76,7 @@ protected:
     std::vector<Real> v_;
   };
 
+PRIVATE_CUDA:
   template <typename ExeSpace>
   struct ValuesDevice : public ValuesPartition {
     ValuesDevice (Values& v)
@@ -87,6 +88,7 @@ protected:
     util::RawArrayRaft<Real, ExeSpace> rar_;
   };
 
+protected:
   // For solution output, if requested.
   struct Writer {
     std::unique_ptr<FILE, cedr::util::FILECloser> fh;
