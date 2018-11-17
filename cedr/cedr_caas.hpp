@@ -73,6 +73,7 @@ protected:
   std::shared_ptr<std::vector<Decl> > tracer_decls_;
   bool need_conserve_;
   IntList probs_, t2r_;
+  typename IntList::HostMirror probs_h_;
   RealList d_, send_, recv_;
 
   void reduce_locally();

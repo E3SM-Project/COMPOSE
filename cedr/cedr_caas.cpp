@@ -31,11 +31,13 @@ void CAAS<ES>::end_tracer_declarations () {
   cedr_throw_if(tracer_decls_->size() == 0, "#tracers is 0.");
   cedr_throw_if(nrhomidxs_ == 0, "#rhomidxs is 0.");
   probs_ = IntList("CAAS probs", static_cast<Int>(tracer_decls_->size()));
-  t2r_ = IntList("CAAS t2r", static_cast<Int>(tracer_decls_->size()));
+  probs_h_ = Kokkos::create_mirror_view(probs_);
+  //t2r_ = IntList("CAAS t2r", static_cast<Int>(tracer_decls_->size()));
   for (Int i = 0; i < probs_.extent_int(0); ++i) {
-    probs_(i) = (*tracer_decls_)[i].probtype;
-    t2r_(i) = (*tracer_decls_)[i].rhomidx;
+    probs_h_(i) = (*tracer_decls_)[i].probtype;
+    //t2r_(i) = (*tracer_decls_)[i].rhomidx;
   }
+  Kokkos::deep_copy(probs_, probs_h_);
   tracer_decls_ = nullptr;
   // (rho, Qm, Qm_min, Qm_max, [Qm_prev])
   const Int e = need_conserve_ ? 1 : 0;
@@ -49,7 +51,7 @@ void CAAS<ES>::end_tracer_declarations () {
 template <typename ES>
 int CAAS<ES>::get_problem_type (const Int& tracer_idx) const {
   cedr_assert(tracer_idx >= 0 && tracer_idx < probs_.extent_int(0));
-  return probs_[tracer_idx];
+  return probs_h_[tracer_idx];
 }
 
 template <typename ES>
@@ -243,8 +245,8 @@ Int unittest (const mpi::Parallel::Ptr& p) {
   for (Int nlclcells : {1, 2, 4, 11}) {
     Long ncells = np*nlclcells;
     if (ncells > np) ncells -= np/2;
-    nerr += TestCAAS(p, ncells, false, false).run(1, false);
-    nerr += TestCAAS(p, ncells, true, false).run(1, false);
+    nerr += TestCAAS(p, ncells, false, false).run<>(1, false);
+    nerr += TestCAAS(p, ncells, true, false).run<>(1, false);
   }
   return nerr;
 }

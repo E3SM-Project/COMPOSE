@@ -392,6 +392,7 @@ void TestRandomized::init () {
   init_tracers();
 }
 
+template <typename ExeSpace>
 Int TestRandomized::run (const Int nrepeat, const bool write) {
   const Int nt = tracers_.size(), nlclcells = gcis_.size();
 
@@ -434,6 +435,8 @@ Int TestRandomized::run (const Int nrepeat, const bool write) {
       write_post(t, v);
   return check(cdr_name_, *p_, tracers_, v);
 }
+
+template Int TestRandomized::run<Kokkos::DefaultExecutionSpace>(Int, bool);
 
 } // namespace test
 } // namespace cedr

@@ -5,20 +5,39 @@
 
 namespace cedr {
 namespace impl {
-template <typename MemoryTraitsType, Kokkos::MemoryTraitsFlags flag>
-using MemoryTraits = Kokkos::MemoryTraits<
-  MemoryTraitsType::Unmanaged | MemoryTraitsType::RandomAccess |
-  MemoryTraitsType::Atomic | flag>;
+
+// Turn a View's MemoryTraits (traits::memory_traits) into the equivalent
+// unsigned int mask.
+template <typename View>
+struct MemoryTraitsMask {
+  enum : unsigned int {
+    value = ((View::traits::memory_traits::RandomAccess ? Kokkos::RandomAccess : 0) |
+             (View::traits::memory_traits::Atomic ? Kokkos::Atomic : 0) |
+             (View::traits::memory_traits::Restrict ? Kokkos::Restrict : 0) |
+             (View::traits::memory_traits::Aligned ? Kokkos::Aligned : 0) |
+             (View::traits::memory_traits::Unmanaged ? Kokkos::Unmanaged : 0))
+      };
+};
+
+// Make the input View Unmanaged, whether or not it already is. One might
+// imagine that View::unmanaged_type would provide this.
+//   Use: Unmanaged<ViewType>
+template <typename View>
+using Unmanaged =
+  // Provide a full View type specification, augmented with Unmanaged.
+  Kokkos::View<typename View::traits::scalar_array_type,
+               typename View::traits::array_layout,
+               typename View::traits::device_type,
+               Kokkos::MemoryTraits<
+                 // All the current values...
+                 MemoryTraitsMask<View>::value |
+                 // ... |ed with the one we want, whether or not it's
+                 // already there.
+                 Kokkos::Unmanaged> >;
 
 template <typename View>
-using Unmanaged = Kokkos::View<
-  typename View::data_type, typename View::array_layout,
-  typename View::device_type, MemoryTraits<typename View::memory_traits,
-                                           Kokkos::Unmanaged> >;
-template <typename View>
-using Const = Kokkos::View<
-  typename View::const_data_type, typename View::array_layout,
-  typename View::device_type, typename View::memory_traits>;
+using Const = typename View::const_type;
+
 template <typename View>
 using ConstUnmanaged = Const<Unmanaged<View> >;
 
@@ -47,6 +66,7 @@ template <typename T> KOKKOS_INLINE_FUNCTION
 const T& max (const T& a, const T& b) { return a > b ? a : b; }
 template <typename T> KOKKOS_INLINE_FUNCTION
 void swap (T& a, T& b) { const T tmp = a; a = b; b = tmp; }
+
 }
 }
 
