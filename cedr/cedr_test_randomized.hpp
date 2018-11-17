@@ -57,7 +57,7 @@ protected:
     const Real* Qm_prev (const Int& ti) const
     { return const_cast<ValuesPartition*>(this)->Qm_prev(ti); }
   protected:
-    void init (const Int ntracers, const Int ncells, Real* v) {
+    void init (const Int ncells, Real* v) {
       ncells_ = ncells;
       v_ = v;
     }
@@ -69,9 +69,21 @@ protected:
   struct Values : public ValuesPartition {
     Values (const Int ntracers, const Int ncells)
       : v_((4*ntracers + 1)*ncells)
-    { init(ntracers, ncells, v_.data()); }
+    { init(ncells, v_.data()); }
   private:
+    friend struct ValuesDevice;
     std::vector<Real> v_;
+  };
+
+  template <typename ExeSpace>
+  struct ValuesDevice : public ValuesPartition {
+    ValuesDevice (const Values& v)
+      : rar_(v.v_.data(), v.v_.size())
+    { init(v.ncells(), rar_.device_ptr()); }
+    void sync_device () { rar_.sync_device(); }
+    void sync_host () { rar_.since_host(); }
+  private:
+    util::RawArrayRaft<Real, ExeSpace> rar_;
   };
 
   // For solution output, if requested.
