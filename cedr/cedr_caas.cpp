@@ -76,40 +76,47 @@ Int CAAS<ES>::get_num_tracers () const {
   return probs_.extent_int(0);
 }
 
+template <typename RealList, typename IntList>
+KOKKOS_INLINE_FUNCTION static void
+calc_Qm_scalars (const RealList& d, const IntList& probs,
+                 const Int& nt, const Int& nlclcells,
+                 const Int& k, const Int& os, const Int& i,
+                 Real& Qm_clip, Real& Qm_term) {
+  const Real Qm = d(os+i);
+  Qm_term = (probs(k) & ProblemType::conserve ?
+             d(os + nlclcells*3*nt + i) /* Qm_prev */ :
+             Qm);
+  const Real Qm_min = d(os + nlclcells*  nt + i);
+  const Real Qm_max = d(os + nlclcells*2*nt + i);
+  Qm_clip = cedr::impl::min(Qm_max, cedr::impl::max(Qm_min, Qm));
+}
+
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
   const bool user_reduces = user_reducer_ != nullptr;
   const Int nt = probs_.size();
-
-  const auto calc = [&] (const Int& k, const Int& os, const Int& i,
-                         Real& Qm_clip, Real& Qm_term) {
-    const Real Qm = d_(os+i);
-    Qm_term = (probs_(k) & ProblemType::conserve ?
-               d_(os + nlclcells_*3*nt + i) /* Qm_prev */ :
-               Qm);
-    const Real Qm_min = d_(os + nlclcells_*  nt + i);
-    const Real Qm_max = d_(os + nlclcells_*2*nt + i);
-    Qm_clip = cedr::impl::min(Qm_max, cedr::impl::max(Qm_min, Qm));    
-  };
-
   const auto nlclcells = nlclcells_;
+
+  const auto probs = probs_;
+  const auto send = send_;
+  const auto d = d_;
   if (user_reducer_) {
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const Int& j) {
       const auto k = j / nlclcells;
       const auto i = j % nlclcells;
       const auto os = (k+1)*nlclcells;
       Real Qm_clip, Qm_term;
-      calc(k, os, i, Qm_clip, Qm_term);
-      d_(os+i) = Qm_clip;
-      send_(nlclcells_*      k  + i) = Qm_clip;
-      send_(nlclcells_*(nt + k) + i) = Qm_term;
+      calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
+      d(os+i) = Qm_clip;
+      send(nlclcells_*      k  + i) = Qm_clip;
+      send(nlclcells_*(nt + k) + i) = Qm_term;
     };
     Kokkos::parallel_for(nt*nlclcells, calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
       const auto k = 2*nt + j / nlclcells;
       const auto i = j % nlclcells;
       const auto os = (k-nt+1)*nlclcells;
-      send_(nlclcells_*k + i) = d_(os+i);
+      send(nlclcells_*k + i) = d(os+i);
     };
     Kokkos::parallel_for(2*nt*nlclcells, set_Qm_minmax);
   } else {
@@ -119,16 +126,16 @@ void CAAS<ES>::reduce_locally () {
       const auto os = (k+1)*nlclcells;
       const auto reduce = [&] (const Int& i, Kokkos::Real2& accum) {
         Real Qm_clip, Qm_term;
-        calc(k, os, i, Qm_clip, Qm_term);
-        d_(os+i) = Qm_clip;
+        calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
+        d(os+i) = Qm_clip;
         accum.v[0] += Qm_clip;
         accum.v[1] += Qm_term;
       };
       Kokkos::Real2 accum;
       Kokkos::parallel_reduce(Kokkos::TeamThreadRange(t, nlclcells),
                               reduce, Kokkos::Sum<Kokkos::Real2>(accum));
-      send_(     k) = accum.v[0];
-      send_(nt + k) = accum.v[1];
+      send(     k) = accum.v[0];
+      send(nt + k) = accum.v[1];
     };
     Kokkos::parallel_for(ESU::get_default_team_policy(nt, nlclcells),
                          calc_Qm_clip);
@@ -136,12 +143,12 @@ void CAAS<ES>::reduce_locally () {
       const auto k = 2*nt + t.league_rank();
       const auto os = (k-nt+1)*nlclcells;
       const auto reduce = [&] (const Int& i, Real& accum) {
-        accum += d_(os+i);
+        accum += d(os+i);
       };
       Real accum;
       Kokkos::parallel_reduce(Kokkos::TeamThreadRange(t, nlclcells),
                               reduce, Kokkos::Sum<Real>(accum));
-      send_(k) = accum;
+      send(k) = accum;
     };
     Kokkos::parallel_for(ESU::get_default_team_policy(2*nt, nlclcells),
                          set_Qm_minmax);

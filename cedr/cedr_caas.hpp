@@ -76,8 +76,10 @@ protected:
   typename IntList::HostMirror probs_h_;
   RealList d_, send_, recv_;
 
-  void reduce_locally();
   void reduce_globally();
+
+PRIVATE_CUDA:
+  void reduce_locally();
   void finish_locally();
 };
 
