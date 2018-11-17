@@ -6,6 +6,12 @@
 namespace cedr {
 namespace test {
 
+/* todo
+   - get run working on GPU
+   - check that CAAS can be copied cleanly
+   - wrap some host data in QLT with shared_ptr for clean copy to device
+ */
+
 template <typename CDRT, typename ExeSpace>
 Int TestRandomized::run (const Int nrepeat, const bool write) {
   const Int nt = tracers_.size(), nlclcells = gcis_.size();
@@ -23,26 +29,36 @@ Int TestRandomized::run (const Int nrepeat, const bool write) {
 
   CDRT cdr = static_cast<CDRT&>(get_cdr());
   ValuesDevice<ExeSpace> vd(v);
-  const auto set_rhom = KOKKOS_LAMBDA (const Int& i) {
-    cdr.set_rhom(i, 0, vd.rhom()[i]);
-  };
-  Kokkos::parallel_for(nlclcells, set_rhom);
-  for (Int trial = 0; trial <= nrepeat; ++trial) {
-    for (Int ti = 0; ti < nt; ++ti) {
-      Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
-        * Qm_prev = v.Qm_prev(ti);
-      for (Int i = 0; i < nlclcells; ++i)
-        cdr.set_Qm(i, ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
-    }
+  vd.sync_device();
 
+  {
+    const auto rhom = vd.rhom();
+    const auto set_rhom = KOKKOS_LAMBDA (const Int& i) {
+      cdr.set_rhom(i, 0, rhom[i]);
+    };
+    Kokkos::parallel_for(nlclcells, set_rhom);
+  }
+  // repeat > 1 runs the same values repeatedly for performance
+  // meaurement.
+  for (Int trial = 0; trial <= nrepeat; ++trial) {
+    const auto set_Qm = KOKKOS_LAMBDA (const Int& j) {
+      const auto ti = j / nlclcells;
+      const auto i = j % nlclcells;
+      cdr.set_Qm(i, ti, vd.Qm(ti)[i], vd.Qm_min(ti)[i], vd.Qm_max(ti)[i],
+                 vd.Qm_prev(ti)[i]);
+    };
+    Kokkos::parallel_for(nt*nlclcells, set_Qm);
     run_impl(trial);
   }
-
-  for (Int ti = 0; ti < nt; ++ti) {
-    Real* Qm = v.Qm(ti);
-    for (Int i = 0; i < nlclcells; ++i)
-      Qm[i] = cdr.get_Qm(i, ti);
+  {
+    const auto get_Qm = KOKKOS_LAMBDA (const Int& j) {
+      const auto ti = j / nlclcells;
+      const auto i = j % nlclcells;
+      vd.Qm(ti)[i] = cdr.get_Qm(i, ti);
+    };
+    Kokkos::parallel_for(nt*nlclcells, get_Qm);
   }
+  vd.sync_host(); // => v contains computed values
 
   if (write)
     for (const auto& t : tracers_)

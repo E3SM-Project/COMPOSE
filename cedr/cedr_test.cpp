@@ -79,7 +79,9 @@ int main (int argc, char** argv) {
   auto p = cedr::mpi::make_parallel(MPI_COMM_WORLD);
   srand(p->rank());
   Kokkos::initialize(argc, argv);
+#if 0
   try {
+#endif
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
     if (inp.qin.unittest) {
@@ -97,12 +99,14 @@ int main (int argc, char** argv) {
       if (p->amroot())
         std::cout << (gnerr != 0 ? "FAIL" : "PASS") << "\n";
     }
+#if 0
   } catch (const std::exception& e) {
     if (p->amroot())
       std::cerr << e.what();
     retval = -1;
   }
-  Kokkos::finalize_all();
+#endif
+  Kokkos::finalize();
   if (nerr) prc(nerr);
   MPI_Finalize();
   return retval;

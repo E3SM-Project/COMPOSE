@@ -42,20 +42,11 @@ protected:
 
   struct ValuesPartition {
     Int ncells () const { return ncells_; }
-    KIF Real* rhom () { return v_; }
-    KIF Real* Qm_min  (const Int& ti) { return v_ + ncells_*(1 + 4*ti    ); }
-    KIF Real* Qm      (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 1); }
-    KIF Real* Qm_max  (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 2); }
-    KIF Real* Qm_prev (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 3); }
-    KIF const Real* rhom () const { return const_cast<ValuesPartition*>(this)->rhom(); }
-    KIF const Real* Qm_min  (const Int& ti) const
-    { return const_cast<ValuesPartition*>(this)->Qm_min (ti); }
-    KIF const Real* Qm      (const Int& ti) const
-    { return const_cast<ValuesPartition*>(this)->Qm     (ti); }
-    KIF const Real* Qm_max  (const Int& ti) const
-    { return const_cast<ValuesPartition*>(this)->Qm_max (ti); }
-    KIF const Real* Qm_prev (const Int& ti) const
-    { return const_cast<ValuesPartition*>(this)->Qm_prev(ti); }
+    KIF Real* rhom () const { return v_; }
+    KIF Real* Qm_min  (const Int& ti) const { return v_ + ncells_*(1 + 4*ti    ); }
+    KIF Real* Qm      (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 1); }
+    KIF Real* Qm_max  (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 2); }
+    KIF Real* Qm_prev (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 3); }
   protected:
     void init (const Int ncells, Real* v) {
       ncells_ = ncells;
@@ -79,11 +70,14 @@ protected:
 PRIVATE_CUDA:
   template <typename ExeSpace>
   struct ValuesDevice : public ValuesPartition {
+    // This Values object is the source of data and gets updated by sync_host.
     ValuesDevice (Values& v)
       : rar_(v.data(), v.size())
     { init(v.ncells(), rar_.device_ptr()); }
+    // Values -> device.
     void sync_device () { rar_.sync_device(); }
-    void sync_host () { rar_.since_host(); }
+    // Update Values from device.
+    void sync_host () { rar_.sync_host(); }
   private:
     util::RawArrayRaft<Real, ExeSpace> rar_;
   };
