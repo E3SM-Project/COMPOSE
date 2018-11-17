@@ -94,8 +94,7 @@ calc_Qm_scalars (const RealList& d, const IntList& probs,
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
   const bool user_reduces = user_reducer_ != nullptr;
-  const Int nt = probs_.size();
-  const auto nlclcells = nlclcells_;
+  ConstExceptGnu Int nt = probs_.size(), nlclcells = nlclcells_;
 
   const auto probs = probs_;
   const auto send = send_;
@@ -142,13 +141,9 @@ void CAAS<ES>::reduce_locally () {
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const typename ESU::Member& t) {
       const auto k = 2*nt + t.league_rank();
       const auto os = (k-nt+1)*nlclcells;
-      const auto reduce = [&] (const Int& i, Real& accum) {
-        accum += d(os+i);
-      };
-      Real accum;
       Kokkos::parallel_reduce(Kokkos::TeamThreadRange(t, nlclcells),
-                              reduce, Kokkos::Sum<Real>(accum));
-      send(k) = accum;
+                              [&] (const Int& i, Real& accum) { accum += d(os+i); },
+                              Kokkos::Sum<Real>(send(k)));
     };
     Kokkos::parallel_for(ESU::get_default_team_policy(2*nt, nlclcells),
                          set_Qm_minmax);

@@ -9,6 +9,13 @@
 // marked public for Cuda visibility.
 #define PRIVATE_CUDA public
 
+#if defined KOKKOS_COMPILER_GNU
+// See https://github.com/kokkos/kokkos-kernels/issues/129 
+# define ConstExceptGnu
+#else
+# define ConstExceptGnu const
+#endif
+
 namespace cedr {
 namespace impl {
 
