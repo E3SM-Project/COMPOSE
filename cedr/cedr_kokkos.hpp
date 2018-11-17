@@ -65,6 +65,26 @@ typedef Kokkos::Device<Kokkos::DefaultExecutionSpace::execution_space,
                        Kokkos::DefaultExecutionSpace::memory_space> DefaultDeviceType;
 #endif
 
+template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
+struct ExeSpaceUtils {
+  using TeamPolicy = Kokkos::TeamPolicy<ExeSpace>;
+  using Member = typename TeamPolicy::member_type;
+  static TeamPolicy get_default_team_policy (int outer, int inner) {
+    return TeamPolicy(outer, 1);
+  }
+};
+
+#ifdef KOKKOS_ENABLE_CUDA
+template <>
+struct ExeSpaceUtils<Kokkos::Cuda> {
+  using TeamPolicy = Kokkos::TeamPolicy<Kokkos::Cuda>;
+  using Member = typename TeamPolicy::member_type;
+  static TeamPolicy get_default_team_policy (int outer, int inner) {
+    return TeamPolicy(outer, std::min(128, 32*((inner + 31)/32)));
+  }
+};
+#endif
+
 // GPU-friendly replacements for std::*.
 template <typename T> KOKKOS_INLINE_FUNCTION
 const T& min (const T& a, const T& b) { return a < b ? a : b; }
@@ -73,7 +93,7 @@ const T& max (const T& a, const T& b) { return a > b ? a : b; }
 template <typename T> KOKKOS_INLINE_FUNCTION
 void swap (T& a, T& b) { const T tmp = a; a = b; b = tmp; }
 
-}
-}
+} // namespace impl
+} // namespace cedr
 
 #endif
