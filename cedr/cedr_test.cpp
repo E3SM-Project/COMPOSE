@@ -80,8 +80,9 @@ int main (int argc, char** argv) {
   srand(p->rank());
   Kokkos::initialize(argc, argv);
 #if 0
-  try {
+  try
 #endif
+  {
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
     if (inp.qin.unittest) {
@@ -99,8 +100,9 @@ int main (int argc, char** argv) {
       if (p->amroot())
         std::cout << (gnerr != 0 ? "FAIL" : "PASS") << "\n";
     }
+  }
 #if 0
-  } catch (const std::exception& e) {
+  catch (const std::exception& e) {
     if (p->amroot())
       std::cerr << e.what();
     retval = -1;
