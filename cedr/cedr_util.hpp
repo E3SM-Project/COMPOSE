@@ -87,13 +87,13 @@ struct FILECloser { void operator() (FILE* fh) { fclose(fh); } };
 template <typename T, typename ExeSpace>
 struct RawArrayRaft {
   typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
-  typedef Kokkos::View<T*, Kokkos::LayoutLeft, Device> List;
+  typedef Kokkos::View<T*, Device> List;
   
   RawArrayRaft (T* a, const Int n)
     : a_(a), n_(n)
   {
-    a_d_ = List(a_, n_);
-    a_h_ = Kokkos::create_mirror_view(a_d_);
+    a_d_ = List("RawArrayRaft::a_d_", n_);
+    a_h_ = typename List::HostMirror(a_, n_);
   }
 
   const List& sync_device () {
