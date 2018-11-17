@@ -523,8 +523,9 @@ void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
 
 template <typename ES>
 void QLT<ES>::init_ordinals () {
+  gci2lci_ = std::make_shared<Gci2LciMap>();
   for (const auto& n : ns_->levels[0].nodes)
-    gci2lci_[n->id] = n->offset;
+    (*gci2lci_)[n->id] = n->offset;
 }
 
 template <typename ES>
@@ -558,14 +559,14 @@ void QLT<ES>::get_owned_glblcells (std::vector<Long>& gcis) const {
 // it. This is not an efficient operation.
 template <typename ES>
 Int QLT<ES>::gci2lci (const Int& gci) const {
-  const auto it = gci2lci_.find(gci);
-  if (it == gci2lci_.end()) {
+  const auto it = gci2lci_->find(gci);
+  if (it == gci2lci_->end()) {
     pr(puf(gci));
     std::vector<Long> gcis;
     get_owned_glblcells(gcis);
     mprarr(gcis);
   }
-  cedr_throw_if(it == gci2lci_.end(), "gci " << gci << " not in gci2lci map.");
+  cedr_throw_if(it == gci2lci_->end(), "gci " << gci << " not in gci2lci map.");
   return it->second;
 }
 

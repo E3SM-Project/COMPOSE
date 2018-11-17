@@ -268,14 +268,17 @@ protected:
                                  const Real& rhom0, const Real* k0d, Real& Qm0,
                                  const Real& rhom1, const Real* k1d, Real& Qm1);
 
+  /// Pointer data for initialization and host computation.
   Parallel::Ptr p_;
   // Tree and communication topology.
   std::shared_ptr<const impl::NodeSets> ns_;
   // Globally unique cellidx -> rank-local index.
-  std::map<Int,Int> gci2lci_;
+  typedef std::map<Int,Int> Gci2LciMap;
+  std::shared_ptr<Gci2LciMap> gci2lci_;
   // Temporary to collect caller's tracer information prior to calling
   // end_tracer_declarations().
   typename MetaDataBuilder::Ptr mdb_;
+  /// View data for host and device computation.
   // Constructed in end_tracer_declarations().
   MetaData md_;
   BulkData bd_;

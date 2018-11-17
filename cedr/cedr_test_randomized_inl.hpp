@@ -6,12 +6,6 @@
 namespace cedr {
 namespace test {
 
-/* todo
-   - get run working on GPU
-   - check that CAAS can be copied cleanly
-   - wrap some host data in QLT with shared_ptr for clean copy to device
- */
-
 template <typename CDRT, typename ExeSpace>
 Int TestRandomized::run (const Int nrepeat, const bool write) {
   const Int nt = tracers_.size(), nlclcells = gcis_.size();
