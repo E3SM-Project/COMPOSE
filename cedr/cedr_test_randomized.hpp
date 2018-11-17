@@ -16,7 +16,7 @@ public:
   // The subclass should call this, probably in its constructor.
   void init();
 
-  template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
+  template <typename CDRT, typename ExeSpace = Kokkos::DefaultExecutionSpace>
   Int run(const Int nrepeat = 1, const bool write=false);
 
 private:
@@ -42,19 +42,19 @@ protected:
 
   struct ValuesPartition {
     Int ncells () const { return ncells_; }
-    Real* rhom () { return v_; }
-    Real* Qm_min  (const Int& ti) { return v_ + ncells_*(1 + 4*ti    ); }
-    Real* Qm      (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 1); }
-    Real* Qm_max  (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 2); }
-    Real* Qm_prev (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 3); }
-    const Real* rhom () const { return const_cast<ValuesPartition*>(this)->rhom(); }
-    const Real* Qm_min  (const Int& ti) const
+    KIF Real* rhom () { return v_; }
+    KIF Real* Qm_min  (const Int& ti) { return v_ + ncells_*(1 + 4*ti    ); }
+    KIF Real* Qm      (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 1); }
+    KIF Real* Qm_max  (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 2); }
+    KIF Real* Qm_prev (const Int& ti) { return v_ + ncells_*(1 + 4*ti + 3); }
+    KIF const Real* rhom () const { return const_cast<ValuesPartition*>(this)->rhom(); }
+    KIF const Real* Qm_min  (const Int& ti) const
     { return const_cast<ValuesPartition*>(this)->Qm_min (ti); }
-    const Real* Qm      (const Int& ti) const
+    KIF const Real* Qm      (const Int& ti) const
     { return const_cast<ValuesPartition*>(this)->Qm     (ti); }
-    const Real* Qm_max  (const Int& ti) const
+    KIF const Real* Qm_max  (const Int& ti) const
     { return const_cast<ValuesPartition*>(this)->Qm_max (ti); }
-    const Real* Qm_prev (const Int& ti) const
+    KIF const Real* Qm_prev (const Int& ti) const
     { return const_cast<ValuesPartition*>(this)->Qm_prev(ti); }
   protected:
     void init (const Int ncells, Real* v) {
@@ -70,15 +70,16 @@ protected:
     Values (const Int ntracers, const Int ncells)
       : v_((4*ntracers + 1)*ncells)
     { init(ncells, v_.data()); }
+    Real* data () { return v_.data(); }
+    size_t size () const { return v_.size(); }
   private:
-    friend struct ValuesDevice;
     std::vector<Real> v_;
   };
 
   template <typename ExeSpace>
   struct ValuesDevice : public ValuesPartition {
-    ValuesDevice (const Values& v)
-      : rar_(v.v_.data(), v.v_.size())
+    ValuesDevice (Values& v)
+      : rar_(v.data(), v.size())
     { init(v.ncells(), rar_.device_ptr()); }
     void sync_device () { rar_.sync_device(); }
     void sync_host () { rar_.since_host(); }
@@ -147,5 +148,7 @@ private:
 
 } // namespace test
 } // namespace cedr
+
+#include "cedr_test_randomized_inl.hpp"
 
 #endif

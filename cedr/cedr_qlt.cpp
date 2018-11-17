@@ -835,7 +835,7 @@ private:
 Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
               const Int& ncells, const Int nrepeat,
               const bool write, const bool verbose) {
-  return TestQLT(p, tree, ncells, verbose).run<>(nrepeat, write);
+  return TestQLT(p, tree, ncells, verbose).run<TestQLT::QLTT>(nrepeat, write);
 }
 } // namespace test
 

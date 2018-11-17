@@ -3,6 +3,8 @@
 
 #include <Kokkos_Core.hpp>
 
+#define KIF KOKKOS_INLINE_FUNCTION
+
 namespace cedr {
 namespace impl {
 

@@ -150,18 +150,18 @@ public:
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) const override;
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
               const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = std::numeric_limits<Real>::infinity()) override;
+              const Real Qm_prev = std::numeric_limits<Real>::infinity()) const override;
 
   void run() override;
 
   KOKKOS_INLINE_FUNCTION
-  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
+  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
 
 protected:
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;

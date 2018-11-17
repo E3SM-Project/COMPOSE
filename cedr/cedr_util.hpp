@@ -92,7 +92,7 @@ struct RawArrayRaft {
   RawArrayRaft (T* a, const Int n)
     : a_(a), n_(n)
   {
-    a_d_ = List("RawArrayRaft::a_d_", a_, n_);
+    a_d_ = List(a_, n_);
     a_h_ = Kokkos::create_mirror_view(a_d_);
   }
 

@@ -245,8 +245,8 @@ Int unittest (const mpi::Parallel::Ptr& p) {
   for (Int nlclcells : {1, 2, 4, 11}) {
     Long ncells = np*nlclcells;
     if (ncells > np) ncells -= np/2;
-    nerr += TestCAAS(p, ncells, false, false).run<>(1, false);
-    nerr += TestCAAS(p, ncells, true, false).run<>(1, false);
+    nerr += TestCAAS(p, ncells, false, false).run<TestCAAS::CAAST>(1, false);
+    nerr += TestCAAS(p, ncells, true, false).run<TestCAAS::CAAST>(1, false);
   }
   return nerr;
 }

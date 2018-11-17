@@ -392,51 +392,5 @@ void TestRandomized::init () {
   init_tracers();
 }
 
-template <typename ExeSpace>
-Int TestRandomized::run (const Int nrepeat, const bool write) {
-  const Int nt = tracers_.size(), nlclcells = gcis_.size();
-
-  Values v(nt, nlclcells);
-  generate_rho(v);
-  for (const auto& t : tracers_) {
-    generate_Q(t, v);
-    perturb_Q(t, v);
-  }
-
-  if (write)
-    for (const auto& t : tracers_)
-      write_pre(t, v);
-
-  CDR& cdr = get_cdr();
-  {
-    Real* rhom = v.rhom();
-    for (Int i = 0; i < nlclcells; ++i)
-      cdr.set_rhom(i, 0, rhom[i]);
-  }
-  for (Int trial = 0; trial <= nrepeat; ++trial) {
-    for (Int ti = 0; ti < nt; ++ti) {
-      Real* Qm_min = v.Qm_min(ti), * Qm = v.Qm(ti), * Qm_max = v.Qm_max(ti),
-        * Qm_prev = v.Qm_prev(ti);
-      for (Int i = 0; i < nlclcells; ++i)
-        cdr.set_Qm(i, ti, Qm[i], Qm_min[i], Qm_max[i], Qm_prev[i]);
-    }
-
-    run_impl(trial);
-  }
-
-  for (Int ti = 0; ti < nt; ++ti) {
-    Real* Qm = v.Qm(ti);
-    for (Int i = 0; i < nlclcells; ++i)
-      Qm[i] = cdr.get_Qm(i, ti);
-  }
-
-  if (write)
-    for (const auto& t : tracers_)
-      write_post(t, v);
-  return check(cdr_name_, *p_, tracers_, v);
-}
-
-template Int TestRandomized::run<Kokkos::DefaultExecutionSpace>(Int, bool);
-
 } // namespace test
 } // namespace cedr
