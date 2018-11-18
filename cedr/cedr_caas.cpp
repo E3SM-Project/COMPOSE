@@ -107,15 +107,15 @@ void CAAS<ES>::reduce_locally () {
       Real Qm_clip, Qm_term;
       calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
       d(os+i) = Qm_clip;
-      send(nlclcells_*      k  + i) = Qm_clip;
-      send(nlclcells_*(nt + k) + i) = Qm_term;
+      send(nlclcells*      k  + i) = Qm_clip;
+      send(nlclcells*(nt + k) + i) = Qm_term;
     };
     Kokkos::parallel_for(nt*nlclcells, calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
       const auto k = 2*nt + j / nlclcells;
       const auto i = j % nlclcells;
       const auto os = (k-nt+1)*nlclcells;
-      send(nlclcells_*k + i) = d(os+i);
+      send(nlclcells*k + i) = d(os+i);
     };
     Kokkos::parallel_for(2*nt*nlclcells, set_Qm_minmax);
   } else {
@@ -160,37 +160,44 @@ void CAAS<ES>::reduce_globally () {
 
 template <typename ES>
 void CAAS<ES>::finish_locally () {
-  const Int nt = probs_.size();
-  Int os = nlclcells_;
-  for (Int k = 0; k < nt; ++k) {
-    const Real Qm_clip_sum = recv_(     k);
-    const Real Qm_sum      = recv_(nt + k);
-    const Real m = Qm_sum - Qm_clip_sum;
+  using ESU = cedr::impl::ExeSpaceUtils<ES>;
+  ConstExceptGnu Int nt = probs_.size(), nlclcells = nlclcells_;
+  const auto recv = recv_;
+  const auto d = d_;
+  const auto adjust_Qm = KOKKOS_LAMBDA (const typename ESU::Member& t) {
+    const auto k = t.league_rank();
+    const auto os = (k+1)*nlclcells;
+    const auto Qm_clip_sum = recv(     k);
+    const auto Qm_sum      = recv(nt + k);
+    const auto m = Qm_sum - Qm_clip_sum;
     if (m < 0) {
-      const Real Qm_min_sum = recv_(2*nt + k);
-      Real fac = Qm_clip_sum - Qm_min_sum;
+      const auto Qm_min_sum = recv(2*nt + k);
+      auto fac = Qm_clip_sum - Qm_min_sum;
       if (fac > 0) {
         fac = m/fac;
-        for (Int i = 0; i < nlclcells_; ++i) {
-          const Real Qm_min = d_(os + nlclcells_ * nt + i);
-          Real& Qm = d_(os+i);
-          Qm += fac*(Qm - Qm_min);
-        }
+        const auto adjust = [&] (const Int& i) {
+          const auto Qm_min = d(os + nlclcells * nt + i);
+          auto& Qm = d(os+i);
+          Qm += fac*(Qm - Qm_min);          
+        };
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nlclcells), adjust);
       }
     } else if (m > 0) {
-      const Real Qm_max_sum = recv_(3*nt + k);
-      Real fac = Qm_max_sum - Qm_clip_sum;
+      const auto Qm_max_sum = recv(3*nt + k);
+      auto fac = Qm_max_sum - Qm_clip_sum;
       if (fac > 0) {
         fac = m/fac;
-        for (Int i = 0; i < nlclcells_; ++i) {
-          const Real Qm_max = d_(os + nlclcells_*2*nt + i);
-          Real& Qm = d_(os+i);
+        const auto adjust = [&] (const Int& i) {
+          const auto Qm_max = d(os + nlclcells*2*nt + i);
+          auto& Qm = d(os+i);
           Qm += fac*(Qm_max - Qm);
-        }
+        };
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nlclcells), adjust);
       }
     }
-    os += nlclcells_;
-  }
+  };
+  Kokkos::parallel_for(ESU::get_default_team_policy(nt, nlclcells),
+                       adjust_Qm);
 }
 
 template <typename ES>
