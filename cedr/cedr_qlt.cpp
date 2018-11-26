@@ -617,13 +617,11 @@ void QLT<ES>::run () {
         mpi::irecv(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
                    NodeSets::mpitag, &lvl.kids_req[i]);
       }
-      //todo Replace with simultaneous waitany and isend.
       Timer::start(Timer::waitall);
       mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
       Timer::stop(Timer::waitall);
     }
     // Combine kids' data.
-    //todo Kernelize, interacting with waitany todo above.
     for (const auto& n : lvl.nodes) {
       if ( ! n->nkids) continue;
       cedr_kernel_assert(n->nkids == 2);
@@ -695,13 +693,11 @@ void QLT<ES>::run () {
         mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
                    NodeSets::mpitag, &lvl.me_recv_req[i]);
       }
-      //todo Replace with simultaneous waitany and isend.
       Timer::start(Timer::waitall);
       mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
       Timer::stop(Timer::waitall);
     }
     // Solve QP for kids' values.
-    //todo Kernelize, interacting with waitany todo above.
     Timer::start(Timer::snp);
     for (const auto& n : lvl.nodes) {
       if ( ! n->nkids) continue;
