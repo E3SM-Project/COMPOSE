@@ -219,14 +219,20 @@ struct TestCAAS : public cedr::test::TestRandomized {
   struct TestAllReducer : public CAAST::UserAllReducer {
     int operator() (const mpi::Parallel& p, Real* sendbuf, Real* rcvbuf,
                     int nlcl, int count, MPI_Op op) const override {
+      Kokkos::View<Real*> s(sendbuf, nlcl*count), r(rcvbuf, count);
+      const auto s_h = Kokkos::create_mirror_view(s);
+      Kokkos::deep_copy(s_h, s);
+      const auto r_h = Kokkos::create_mirror_view(r);
       for (int i = 1; i < nlcl; ++i)
-        sendbuf[0] += sendbuf[i];
+        s_h(0) += s_h(i);
       for (int k = 1; k < count; ++k) {
-        sendbuf[k] = sendbuf[nlcl*k];
+        s_h(k) = s_h(nlcl*k);
         for (int i = 1; i < nlcl; ++i)
-          sendbuf[k] += sendbuf[nlcl*k + i];
+          s_h(k) += s_h(nlcl*k + i);
       }
-      return mpi::all_reduce(p, sendbuf, rcvbuf, count, op);
+      const int err = mpi::all_reduce(p, s_h.data(), r_h.data(), count, op);
+      Kokkos::deep_copy(r, r_h);
+      return err;
     }
   };
 
