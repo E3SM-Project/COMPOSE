@@ -4,4 +4,7 @@
 // If defined, insert debug code into MPI wrappers.
 #cmakedefine COMPOSE_DEBUG_MPI
 
+// If defined, use non-optimal OpenMP threading to debug GPU-like parallelism.
+#cmakedefine COMPOSE_MIMIC_GPU
+
 #endif // COMPOSE_CONFIG_H

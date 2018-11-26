@@ -77,8 +77,20 @@ struct ExeSpaceUtils {
   using TeamPolicy = Kokkos::TeamPolicy<ExeSpace>;
   using Member = typename TeamPolicy::member_type;
   static TeamPolicy get_default_team_policy (int outer, int inner) {
-    return TeamPolicy(outer, 1);
-  }
+#ifdef COMPOSE_MIMIC_GPU
+    const int max_threads =
+#ifdef KOKKOS_ENABLE_OPENMP
+      ExeSpace::concurrency()
+#else
+      1
+#endif
+      ;
+    const int team_size = max_threads < 7 ? max_threads : 7;
+    return TeamPolicy(outer, team_size, 1);
+#else
+    return TeamPolicy(outer, 1, 1);
+#endif
+}
 };
 
 #ifdef KOKKOS_ENABLE_CUDA
@@ -87,7 +99,7 @@ struct ExeSpaceUtils<Kokkos::Cuda> {
   using TeamPolicy = Kokkos::TeamPolicy<Kokkos::Cuda>;
   using Member = typename TeamPolicy::member_type;
   static TeamPolicy get_default_team_policy (int outer, int inner) {
-    return TeamPolicy(outer, std::min(128, 32*((inner + 31)/32)));
+    return TeamPolicy(outer, std::min(128, 32*((inner + 31)/32)), 1);
   }
 };
 #endif

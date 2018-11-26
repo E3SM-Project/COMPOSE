@@ -13,6 +13,7 @@ function (list2str list str)
 endfunction ()
 
 set (COMPOSE_DEBUG_MPI FALSE CACHE LOGICAL "If true, insert debugging code into MPI wrappers.")
+set (COMPOSE_MIMIC_GPU FALSE CACHE LOGICAL "If true, use non-optimal OpenMP threading to debug GPU-like parallelism.")
 
 if (Kokkos_DIR)
   include (${Kokkos_DIR}/kokkos_generated_settings.cmake)
@@ -77,8 +78,9 @@ if ("${cmake_build_type_str}" STREQUAL "debug")
 endif ()
 
 if (DEBUG_BUILD)
-  message ("Enable COMPOSE_DEBUG_MPI because build type is DEBUG.")
+  message ("Enable COMPOSE_DEBUG_MPI and COMPOSE_MIMIC_GPU because build type is DEBUG.")
   set (COMPOSE_DEBUG_MPI TRUE)
+  set (COMPOSE_MIMIC_GPU TRUE)
 endif ()
 
 set (COMPOSE_COMPILE_FLAGS "-g ${Kokkos_CXX_FLAGS} ${CMAKE_CXX_FLAGS}")

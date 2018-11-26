@@ -6,11 +6,10 @@ namespace Kokkos {
 struct Real2 {
   cedr::Real v[2];
   KOKKOS_INLINE_FUNCTION Real2 () { v[0] = v[1] = 0; }
-  KOKKOS_INLINE_FUNCTION Real2 operator+= (const Real2& o) const {
-    Real2 r;
-    r.v[0] = v[0] + o.v[0];
-    r.v[1] = v[1] + o.v[1];
-    return r;
+  KOKKOS_INLINE_FUNCTION Real2& operator+= (const Real2& o) {
+    v[0] += o.v[0];
+    v[1] += o.v[1];
+    return *this;
   }
 };
 
@@ -141,9 +140,11 @@ void CAAS<ES>::reduce_locally () {
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const typename ESU::Member& t) {
       const auto k = 2*nt + t.league_rank();
       const auto os = (k-nt+1)*nlclcells;
+      Real accum = 0;
       Kokkos::parallel_reduce(Kokkos::TeamThreadRange(t, nlclcells),
                               [&] (const Int& i, Real& accum) { accum += d(os+i); },
-                              Kokkos::Sum<Real>(send(k)));
+                              Kokkos::Sum<Real>(accum));
+      send(k) = accum;
     };
     Kokkos::parallel_for(ESU::get_default_team_policy(2*nt, nlclcells),
                          set_Qm_minmax);
