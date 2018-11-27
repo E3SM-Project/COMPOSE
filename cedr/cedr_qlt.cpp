@@ -605,8 +605,8 @@ void QLT<ES>::run () {
   Timer::start(Timer::qltrunl2r);
   using namespace impl;
   // Number of data per slot.
-  const Int l2rndps = md_.a_d.prob2bl2r[md_.nprobtypes];
-  const Int r2lndps = md_.a_d.prob2br2l[md_.nprobtypes];
+  const Int l2rndps = md_.a_h.prob2bl2r[md_.nprobtypes];
+  const Int r2lndps = md_.a_h.prob2br2l[md_.nprobtypes];
   // Leaves to root.
   for (size_t il = 0; il < ns_->levels.size(); ++il) {
     auto& lvl = ns_->levels[il];
@@ -614,8 +614,8 @@ void QLT<ES>::run () {
     if (lvl.kids.size()) {
       for (size_t i = 0; i < lvl.kids.size(); ++i) {
         const auto& mmd = lvl.kids[i];
-        mpi::irecv(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.kids_req[i]);
+        mpi::irecv(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
+                   mmd.rank, NodeSets::mpitag, &lvl.kids_req[i]);
       }
       Timer::start(Timer::waitall);
       mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());

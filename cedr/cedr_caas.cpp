@@ -179,7 +179,8 @@ void CAAS<ES>::finish_locally () {
         const auto adjust = [&] (const Int& i) {
           const auto Qm_min = d(os + nlclcells * nt + i);
           auto& Qm = d(os+i);
-          Qm += fac*(Qm - Qm_min);          
+          Qm += fac*(Qm - Qm_min);
+          Qm = impl::max(Qm_min, Qm);
         };
         Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nlclcells), adjust);
       }
@@ -192,6 +193,7 @@ void CAAS<ES>::finish_locally () {
           const auto Qm_max = d(os + nlclcells*2*nt + i);
           auto& Qm = d(os+i);
           Qm += fac*(Qm_max - Qm);
+          Qm = impl::min(Qm_max, Qm);
         };
         Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nlclcells), adjust);
       }
