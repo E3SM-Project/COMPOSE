@@ -282,6 +282,16 @@ protected:
   // Constructed in end_tracer_declarations().
   MetaData md_;
   BulkData bd_;
+
+private:
+  void l2r_recv(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_combine_kid_data(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_send_to_parents(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void root_compute(const Int& l2rndps, const Int& r2lndps) const;
+  void r2l_recv(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
+  void r2l_solve_qp(const impl::NodeSets::Level& lvl, const Int& l2rndps,
+                    const Int& r2lndps) const;
+  void r2l_send_to_kids(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
 };
 
 namespace test {

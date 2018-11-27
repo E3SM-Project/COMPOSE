@@ -573,7 +573,7 @@ Int QLT<ES>::gci2lci (const Int& gci) const {
 template <typename ES>
 void QLT<ES>::declare_tracer (int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! mdb_, "end_tracer_declarations was already called; "
-                "it is an error to call declare_tracer now.");
+                 "it is an error to call declare_tracer now.");
   cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   // For its exception side effect, and to get canonical problem type, since
   // some possible problem types map to the same canonical one:
@@ -600,152 +600,174 @@ Int QLT<ES>::get_num_tracers () const {
   return md_.a_h.trcr2prob.size();
 }
 
-template <typename ES>
-void QLT<ES>::run () {
-  Timer::start(Timer::qltrunl2r);
-  using namespace impl;
-  // Number of data per slot.
-  const Int l2rndps = md_.a_h.prob2bl2r[md_.nprobtypes];
-  const Int r2lndps = md_.a_h.prob2br2l[md_.nprobtypes];
-  // Leaves to root.
-  for (size_t il = 0; il < ns_->levels.size(); ++il) {
-    auto& lvl = ns_->levels[il];
-    // Set up receives.
-    if (lvl.kids.size()) {
-      for (size_t i = 0; i < lvl.kids.size(); ++i) {
-        const auto& mmd = lvl.kids[i];
-        mpi::irecv(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
-                   mmd.rank, NodeSets::mpitag, &lvl.kids_req[i]);
-      }
-      Timer::start(Timer::waitall);
-      mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
-      Timer::stop(Timer::waitall);
-    }
-    // Combine kids' data.
-    for (const auto& n : lvl.nodes) {
-      if ( ! n->nkids) continue;
-      cedr_kernel_assert(n->nkids == 2);
-      // Total density.
-      bd_.l2r_data(n->offset*l2rndps) = (bd_.l2r_data(n->kids[0]->offset*l2rndps) +
-                                         bd_.l2r_data(n->kids[1]->offset*l2rndps));
-      // Tracers.
-      for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
-        const Int problem_type = md_.get_problem_type(pti);
-        const bool sum_only = problem_type & ProblemType::shapepreserve;
-        const Int bsz = md_.get_problem_type_l2r_bulk_size(problem_type);
-        const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
-        for (Int bi = bis; bi < bie; ++bi) {
-          const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
-          Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
-          const Real* const k0 = &bd_.l2r_data(n->kids[0]->offset*l2rndps + bdi);
-          const Real* const k1 = &bd_.l2r_data(n->kids[1]->offset*l2rndps + bdi);
-          me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
-          me[1] =            k0[1] + k1[1] ;
-          me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
-          if (bsz == 4)
-            me[3] =          k0[3] + k1[3] ;
-        }
-      }
-    }
-    // Send to parents.
-    if (lvl.me.size()) {
-      for (size_t i = 0; i < lvl.me.size(); ++i) {
-        const auto& mmd = lvl.me[i];
-        mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                   NodeSets::mpitag);
+template <typename ES> void QLT<ES>
+::l2r_recv (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
+  for (size_t i = 0; i < lvl.kids.size(); ++i) {
+    const auto& mmd = lvl.kids[i];
+    mpi::irecv(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
+               mmd.rank, impl::NodeSets::mpitag, &lvl.kids_req[i]);
+  }
+  Timer::start(Timer::waitall);
+  mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
+  Timer::stop(Timer::waitall);
+}
+
+template <typename ES> void QLT<ES>
+::l2r_combine_kid_data (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
+  for (const auto& n : lvl.nodes) {
+    if ( ! n->nkids) continue;
+    cedr_kernel_assert(n->nkids == 2);
+    // Total density.
+    bd_.l2r_data(n->offset*l2rndps) = (bd_.l2r_data(n->kids[0]->offset*l2rndps) +
+                                       bd_.l2r_data(n->kids[1]->offset*l2rndps));
+    // Tracers.
+    for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
+      const Int problem_type = md_.get_problem_type(pti);
+      const bool sum_only = problem_type & ProblemType::shapepreserve;
+      const Int bsz = md_.get_problem_type_l2r_bulk_size(problem_type);
+      const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
+      for (Int bi = bis; bi < bie; ++bi) {
+        const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
+        Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
+        const Real* const k0 = &bd_.l2r_data(n->kids[0]->offset*l2rndps + bdi);
+        const Real* const k1 = &bd_.l2r_data(n->kids[1]->offset*l2rndps + bdi);
+        me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+        me[1] =            k0[1] + k1[1] ;
+        me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+        if (bsz == 4)
+          me[3] =          k0[3] + k1[3] ;
       }
     }
   }
-  Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
-  // Root.
-  if ( ! ns_->levels.empty() && ns_->levels.back().nodes.size() == 1 &&
-       ! ns_->levels.back().nodes[0]->parent) {
-    const auto& n = ns_->levels.back().nodes[0];
+}
+
+template <typename ES> void QLT<ES>
+::l2r_send_to_parents (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
+  for (size_t i = 0; i < lvl.me.size(); ++i) {
+    const auto& mmd = lvl.me[i];
+    mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
+               impl::NodeSets::mpitag);
+  }  
+}
+
+template <typename ES> void QLT<ES>
+::root_compute (const Int& l2rndps, const Int& r2lndps) const {
+  if (ns_->levels.empty() || ns_->levels.back().nodes.size() != 1 ||
+      ns_->levels.back().nodes[0]->parent)
+    return;
+  const auto& n = ns_->levels.back().nodes[0];
+  for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
+    const Int problem_type = md_.get_problem_type(pti);
+    const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
+    for (Int bi = bis; bi < bie; ++bi) {
+      const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
+      const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
+      // If QLT is enforcing global mass conservation, set the root's r2l Qm
+      // value to the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to
+      // the r2l one.
+      const Int os = problem_type & ProblemType::conserve ? 3 : 1;
+      bd_.r2l_data(n->offset*r2lndps + r2lbdi) =
+        bd_.l2r_data(n->offset*l2rndps + l2rbdi + os);
+      if ( ! (problem_type & ProblemType::shapepreserve)) {
+        // We now know the global q_{min,max}. Start propagating it
+        // leafward.
+        bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1) =
+          bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0);
+        bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2) =
+          bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2);
+      }
+    }
+  }
+}
+
+template <typename ES> void QLT<ES>
+::r2l_recv (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
+  for (size_t i = 0; i < lvl.me.size(); ++i) {
+    const auto& mmd = lvl.me[i];
+    mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
+               impl::NodeSets::mpitag, &lvl.me_recv_req[i]);
+  }
+  Timer::start(Timer::waitall);
+  mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
+  Timer::stop(Timer::waitall);
+}
+
+template <typename ES> void QLT<ES>
+::r2l_solve_qp (const impl::NodeSets::Level& lvl, const Int& l2rndps,
+                const Int& r2lndps) const {
+  Timer::start(Timer::snp);
+  for (const auto& n : lvl.nodes) {
+    if ( ! n->nkids) continue;
     for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
       const Int problem_type = md_.get_problem_type(pti);
       const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
       for (Int bi = bis; bi < bie; ++bi) {
         const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
         const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
-        // If QLT is enforcing global mass conservation, set the root's r2l Qm
-        // value to the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to
-        // the r2l one.
-        const Int os = problem_type & ProblemType::conserve ? 3 : 1;
-        bd_.r2l_data(n->offset*r2lndps + r2lbdi) =
-          bd_.l2r_data(n->offset*l2rndps + l2rbdi + os);
+        cedr_assert(n->nkids == 2);
         if ( ! (problem_type & ProblemType::shapepreserve)) {
-          // We now know the global q_{min,max}. Start propagating it
-          // leafward.
-          bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1) =
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0);
-          bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2) =
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2);
+          // Pass q_{min,max} info along. l2r data are updated for use in
+          // solve_node_problem. r2l data are updated for use in isend.
+          const Real q_min = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1);
+          const Real q_max = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2);
+          bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;
+          bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2) = q_max;
+          for (Int k = 0; k < 2; ++k) {
+            bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 0) = q_min;
+            bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 2) = q_max;
+            bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 1) = q_min;
+            bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 2) = q_max;
+          }
         }
+        const auto& k0 = n->kids[0];
+        const auto& k1 = n->kids[1];
+        solve_node_problem(
+          problem_type,
+           bd_.l2r_data( n->offset*l2rndps),
+          &bd_.l2r_data( n->offset*l2rndps + l2rbdi),
+           bd_.r2l_data( n->offset*r2lndps + r2lbdi),
+           bd_.l2r_data(k0->offset*l2rndps),
+          &bd_.l2r_data(k0->offset*l2rndps + l2rbdi),
+           bd_.r2l_data(k0->offset*r2lndps + r2lbdi),
+           bd_.l2r_data(k1->offset*l2rndps),
+          &bd_.l2r_data(k1->offset*l2rndps + l2rbdi),
+           bd_.r2l_data(k1->offset*r2lndps + r2lbdi));
       }
     }
   }
-  // Root to leaves.
+  Timer::stop(Timer::snp);
+}
+
+template <typename ES> void QLT<ES>
+::r2l_send_to_kids (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
+  for (size_t i = 0; i < lvl.kids.size(); ++i) {
+    const auto& mmd = lvl.kids[i];
+    mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
+               impl::NodeSets::mpitag);
+  }
+}
+
+template <typename ES>
+void QLT<ES>::run () {
+  Timer::start(Timer::qltrunl2r);
+  // Number of data per slot.
+  const Int l2rndps = md_.a_h.prob2bl2r[md_.nprobtypes];
+  const Int r2lndps = md_.a_h.prob2br2l[md_.nprobtypes];
+  for (size_t il = 0; il < ns_->levels.size(); ++il) {
+    auto& lvl = ns_->levels[il];
+    if (lvl.kids.size())
+      l2r_recv(lvl, l2rndps);
+    l2r_combine_kid_data(lvl, l2rndps);    
+    if (lvl.me.size())
+      l2r_send_to_parents(lvl, l2rndps);
+  }
+  Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
+  root_compute(l2rndps, r2lndps);
   for (size_t il = ns_->levels.size(); il > 0; --il) {
     auto& lvl = ns_->levels[il-1];
-    if (lvl.me.size()) {
-      for (size_t i = 0; i < lvl.me.size(); ++i) {
-        const auto& mmd = lvl.me[i];
-        mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.me_recv_req[i]);
-      }
-      Timer::start(Timer::waitall);
-      mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
-      Timer::stop(Timer::waitall);
-    }
-    // Solve QP for kids' values.
-    Timer::start(Timer::snp);
-    for (const auto& n : lvl.nodes) {
-      if ( ! n->nkids) continue;
-      for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
-        const Int problem_type = md_.get_problem_type(pti);
-        const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
-        for (Int bi = bis; bi < bie; ++bi) {
-          const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
-          const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
-          cedr_assert(n->nkids == 2);
-          if ( ! (problem_type & ProblemType::shapepreserve)) {
-            // Pass q_{min,max} info along. l2r data are updated for use in
-            // solve_node_problem. r2l data are updated for use in isend.
-            const Real q_min = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1);
-            const Real q_max = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2);
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2) = q_max;
-            for (Int k = 0; k < 2; ++k) {
-              bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 0) = q_min;
-              bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 2) = q_max;
-              bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 1) = q_min;
-              bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 2) = q_max;
-            }
-          }
-          const auto& k0 = n->kids[0];
-          const auto& k1 = n->kids[1];
-          solve_node_problem(
-            problem_type,
-             bd_.l2r_data( n->offset*l2rndps),
-            &bd_.l2r_data( n->offset*l2rndps + l2rbdi),
-             bd_.r2l_data( n->offset*r2lndps + r2lbdi),
-             bd_.l2r_data(k0->offset*l2rndps),
-            &bd_.l2r_data(k0->offset*l2rndps + l2rbdi),
-             bd_.r2l_data(k0->offset*r2lndps + r2lbdi),
-             bd_.l2r_data(k1->offset*l2rndps),
-            &bd_.l2r_data(k1->offset*l2rndps + l2rbdi),
-             bd_.r2l_data(k1->offset*r2lndps + r2lbdi));
-        }
-      }
-    }
-    Timer::stop(Timer::snp);
-    // Send.
-    if (lvl.kids.size())
-      for (size_t i = 0; i < lvl.kids.size(); ++i) {
-        const auto& mmd = lvl.kids[i];
-        mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag);
-      }
+    if (lvl.me.size()) r2l_recv(lvl, r2lndps);
+    r2l_solve_qp(lvl, l2rndps, r2lndps);
+    if (lvl.kids.size()) r2l_send_to_kids(lvl, r2lndps);
   }
   Timer::stop(Timer::qltrunr2l);
 }
