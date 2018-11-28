@@ -645,8 +645,8 @@ template <typename ES> void QLT<ES>
 ::l2r_send_to_parents (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
   for (size_t i = 0; i < lvl.me.size(); ++i) {
     const auto& mmd = lvl.me[i];
-    mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-               impl::NodeSets::mpitag);
+    mpi::isend(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
+               mmd.rank, impl::NodeSets::mpitag);
   }  
 }
 
@@ -684,8 +684,8 @@ template <typename ES> void QLT<ES>
 ::r2l_recv (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
   for (size_t i = 0; i < lvl.me.size(); ++i) {
     const auto& mmd = lvl.me[i];
-    mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-               impl::NodeSets::mpitag, &lvl.me_recv_req[i]);
+    mpi::irecv(*p_, bd_.r2l_data.data() + mmd.offset*r2lndps, mmd.size*r2lndps,
+               mmd.rank, impl::NodeSets::mpitag, &lvl.me_recv_req[i]);
   }
   Timer::start(Timer::waitall);
   mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
@@ -742,8 +742,8 @@ template <typename ES> void QLT<ES>
 ::r2l_send_to_kids (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
   for (size_t i = 0; i < lvl.kids.size(); ++i) {
     const auto& mmd = lvl.kids[i];
-    mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-               impl::NodeSets::mpitag);
+    mpi::isend(*p_, bd_.r2l_data.data() + mmd.offset*r2lndps, mmd.size*r2lndps,
+               mmd.rank, impl::NodeSets::mpitag);
   }
 }
 
