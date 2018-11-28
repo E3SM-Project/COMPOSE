@@ -755,11 +755,9 @@ void QLT<ES>::run () {
   const Int r2lndps = md_.a_h.prob2br2l[md_.nprobtypes];
   for (size_t il = 0; il < ns_->levels.size(); ++il) {
     auto& lvl = ns_->levels[il];
-    if (lvl.kids.size())
-      l2r_recv(lvl, l2rndps);
+    if (lvl.kids.size()) l2r_recv(lvl, l2rndps);
     l2r_combine_kid_data(lvl, l2rndps);    
-    if (lvl.me.size())
-      l2r_send_to_parents(lvl, l2rndps);
+    if (lvl.me.size()) l2r_send_to_parents(lvl, l2rndps);
   }
   Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
   root_compute(l2rndps, r2lndps);
