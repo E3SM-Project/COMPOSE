@@ -87,18 +87,32 @@ struct NodeSets {
     return idx;
   }
 
-  Node* host_node (const Int& idx) {
+  Int nnode () const { return node_mem_.size(); }
+
+  Node* node_h (const Int& idx) {
     cedr_assert(idx >= 0 && idx < static_cast<Int>(node_mem_.size()));
     return &node_mem_[idx];
   }
-  const Node* host_node (const Int& idx) const {
-    return const_cast<NodeSets*>(this)->host_node(idx);
+  const Node* node_h (const Int& idx) const {
+    return const_cast<NodeSets*>(this)->node_h(idx);
   }
 
   void print(std::ostream& os) const;
   
 private:
   std::vector<Node> node_mem_;
+};
+
+template <typename ExeSpace>
+struct NodeSetsDeviceData {
+  typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
+  typedef Kokkos::View<Int*, Device> IntList;
+  typedef Kokkos::View<NodeSets::Node*, Device> NodeList;
+
+  NodeList node;
+  // lvl(lvlptr(l):lvlptr(l+1)-1) is the list of node indices into node for
+  // level l.
+  IntList lvl, lvlptr;
 };
 } // namespace impl
 
@@ -173,7 +187,7 @@ public:
   Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
 
 protected:
-  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
+  typedef Kokkos::View<Int*, Device> IntList;
   typedef cedr::impl::Const<IntList> ConstIntList;
   typedef cedr::impl::ConstUnmanaged<IntList> ConstUnmanagedIntList;
 
@@ -209,12 +223,12 @@ protected:
       IntListT trcr2br2l;
     };
 
-    static int get_problem_type(const int& idx);
+    KOKKOS_INLINE_FUNCTION static int get_problem_type(const int& idx);
     
     // icpc doesn't let us use problem_type_ here, even though it's constexpr.
     static int get_problem_type_idx(const int& mask);
 
-    static int get_problem_type_l2r_bulk_size(const int& mask);
+    KOKKOS_INLINE_FUNCTION static int get_problem_type_l2r_bulk_size(const int& mask);
 
     static int get_problem_type_r2l_bulk_size(const int& mask);
 
@@ -249,13 +263,12 @@ protected:
     void init(const MetaDataBuilder& mdb);
 
   private:
-    static constexpr Int problem_type_[] = { CPT::st, CPT::cst, CPT::t, CPT::ct };
     Arrays<typename IntList::HostMirror> a_h_;
     Arrays<IntList> a_d_;
   };
 
   struct BulkData {
-    typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
+    typedef Kokkos::View<Real*, Device> RealList;
     typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
 
     UnmanagedRealList l2r_data, r2l_data;
@@ -281,6 +294,8 @@ protected:
   Parallel::Ptr p_;
   // Tree and communication topology.
   std::shared_ptr<const impl::NodeSets> ns_;
+  // Data extracted from ns_ for use in run() on device.
+  impl::NodeSetsDeviceData<ExeSpace> nsdd_;
   // Globally unique cellidx -> rank-local index.
   typedef std::map<Int,Int> Gci2LciMap;
   std::shared_ptr<Gci2LciMap> gci2lci_;
@@ -294,12 +309,11 @@ protected:
 
 private:
   void l2r_recv(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
-  void l2r_combine_kid_data(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_combine_kid_data(const Int& lvlidx, const Int& l2rndps) const;
   void l2r_send_to_parents(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
   void root_compute(const Int& l2rndps, const Int& r2lndps) const;
   void r2l_recv(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
-  void r2l_solve_qp(const impl::NodeSets::Level& lvl, const Int& l2rndps,
-                    const Int& r2lndps) const;
+  void r2l_solve_qp(const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const;
   void r2l_send_to_kids(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
 };
 
