@@ -11,6 +11,7 @@
 #include <list>
 
 #include "cedr_cdr.hpp"
+#include "cedr_util.hpp"
 
 namespace cedr {
 // QLT: Quasi-local tree-based non-iterative tracer density reconstructor for
@@ -32,17 +33,17 @@ struct NodeSets {
     // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
     Int id;
     // This node's parent, a comm partner, if such a partner is required.
-    const Node* parent;
+    Int parent;
     // This node's kids, comm partners, if such partners are required. Parent
     // and kid nodes are pruned relative to the full tree over the mesh to
     // contain just the nodes that matter to this rank.
     Int nkids;
-    const Node* kids[2];
+    Int kids[2];
     // Offset factor into bulk data. An offset is a unit; actual buffer sizes
     // are multiples of this unit.
     Int offset;
 
-    Node () : rank(-1), id(-1), parent(nullptr), nkids(0), offset(-1) {}
+    Node () : rank(-1), id(-1), parent(-1), nkids(0), offset(-1) {}
   };
 
   // A level in the level schedule that is constructed to orchestrate
@@ -66,10 +67,9 @@ struct NodeSets {
     };
     
     // The nodes in the level.
-    std::vector<Node*> nodes;
+    std::vector<Int> nodes;
     // MPI information for this level.
     std::vector<MPIMetaData> me, kids;
-    // Have to keep requests separate so we can call waitall if we want to.
     mutable std::vector<mpi::Request> me_send_req, me_recv_req, kids_req;
   };
   
@@ -81,15 +81,24 @@ struct NodeSets {
   
   // Allocate a node. The list node_mem_ is the mechanism for memory ownership;
   // node_mem_ isn't used for anything other than owning nodes.
-  Node* alloc () {
-    node_mem_.push_front(Node());
-    return &node_mem_.front();
+  Int alloc () {
+    const Int idx = node_mem_.size();
+    node_mem_.push_back(Node());
+    return idx;
+  }
+
+  Node* host_node (const Int& idx) {
+    cedr_assert(idx >= 0 && idx < static_cast<Int>(node_mem_.size()));
+    return &node_mem_[idx];
+  }
+  const Node* host_node (const Int& idx) const {
+    return const_cast<NodeSets*>(this)->host_node(idx);
   }
 
   void print(std::ostream& os) const;
   
 private:
-  std::list<Node> node_mem_;
+  std::vector<Node> node_mem_;
 };
 } // namespace impl
 
@@ -102,8 +111,8 @@ struct Node {
   Long cellidx;       // If a leaf, the cell to which this node corresponds.
   Int nkids;          // 0 at leaf, 1 or 2 otherwise.
   Node::Ptr kids[2];
-  void* reserved;     // For internal use.
-  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(nullptr) {}
+  Int reserved;       // For internal use.
+  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1) {}
 };
 
 // Utility to make a tree over a 1D mesh. For testing, it can be useful to

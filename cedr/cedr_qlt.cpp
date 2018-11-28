@@ -76,7 +76,7 @@ namespace impl {
 void NodeSets::print (std::ostream& os) const {
   std::stringstream ss;
   if (levels.empty()) return;
-  const Int myrank = levels[0].nodes[0]->rank;
+  const Int myrank = host_node(levels[0].nodes[0])->rank;
   ss << "pid " << myrank << ":";
   ss << " #levels " << levels.size();
   for (size_t i = 0; i < levels.size(); ++i) {
@@ -84,12 +84,12 @@ void NodeSets::print (std::ostream& os) const {
     ss << "\n  " << i << ": " << lvl.nodes.size();
     std::set<Int> ps, ks;
     for (size_t j = 0; j < lvl.nodes.size(); ++j) {
-      const auto n = lvl.nodes[j];
+      const auto n = host_node(lvl.nodes[j]);
       for (Int k = 0; k < n->nkids; ++k)
-        if (n->kids[k]->rank != myrank)
-          ks.insert(n->kids[k]->rank);
-      if (n->parent && n->parent->rank != myrank)
-        ps.insert(n->parent->rank);
+        if (host_node(n->kids[k])->rank != myrank)
+          ks.insert(host_node(n->kids[k])->rank);
+      if (n->parent >= 0 && host_node(n->parent)->rank != myrank)
+        ps.insert(host_node(n->parent)->rank);
     }
     ss << " |";
     for (const auto& e : ks) ss << " " << e;
@@ -103,7 +103,7 @@ void NodeSets::print (std::ostream& os) const {
 
 // Find tree depth, assign ranks to non-leaf nodes, and init 'reserved'.
 Int init_tree (const Int& my_rank, const tree::Node::Ptr& node, Int& id) {
-  node->reserved = nullptr;
+  node->reserved = -1;
   Int depth = 0;
   for (Int i = 0; i < node->nkids; ++i) {
     cedr_assert(node.get() == node->kids[i]->parent);
@@ -140,36 +140,38 @@ void level_schedule_and_collect (
   const bool node_is_owned = node->rank == my_rank;
   need_parent_ns_node = node_is_owned;
   if (node_is_owned || make_ns_node) {
-    cedr_assert( ! node->reserved);
-    NodeSets::Node* ns_node = ns.alloc();
+    cedr_assert(node->reserved == -1);
+    const auto ns_node_idx = ns.alloc();
     // Levels hold only owned nodes.
-    if (node_is_owned) ns.levels[level].nodes.push_back(ns_node);
-    node->reserved = ns_node;
+    if (node_is_owned) ns.levels[level].nodes.push_back(ns_node_idx);
+    node->reserved = ns_node_idx;
+    NodeSets::Node* ns_node = ns.host_node(ns_node_idx);
     ns_node->rank = node->rank;
     ns_node->id = node->cellidx;
-    ns_node->parent = nullptr;
     if (node_is_owned) {
       // If this node is owned, it needs to have information about all kids.
       ns_node->nkids = node->nkids;
       for (Int i = 0; i < node->nkids; ++i) {
         const auto& kid = node->kids[i];
-        if ( ! kid->reserved) {
+        if (kid->reserved == -1) {
           // This kid isn't owned by this rank. But need it for irecv.
-          NodeSets::Node* ns_kid;
-          kid->reserved = ns_kid = ns.alloc();
-          ns_node->kids[i] = ns_kid;
+          const auto ns_kid_idx = ns.alloc();
+          NodeSets::Node* ns_kid = ns.host_node(ns_kid_idx);
+          kid->reserved = ns_kid_idx;
+          ns_node = ns.host_node(ns_node_idx);
+          ns_node->kids[i] = ns_kid_idx;
           cedr_assert(kid->rank != my_rank);
           ns_kid->rank = kid->rank;
           ns_kid->id = kid->cellidx;
-          ns_kid->parent = nullptr; // Not needed.
           // The kid may have kids in the original tree, but in the tree pruned
           // according to rank, it does not.
           ns_kid->nkids = 0;
         } else {
           // This kid is owned by this rank, so fill in its parent pointer.
-          NodeSets::Node* ns_kid = static_cast<NodeSets::Node*>(kid->reserved);
-          ns_node->kids[i] = ns_kid;
-          ns_kid->parent = ns_node;
+          NodeSets::Node* ns_kid = ns.host_node(kid->reserved);
+          ns_node = ns.host_node(ns_node_idx);
+          ns_node->kids[i] = kid->reserved;
+          ns_kid->parent = ns_node_idx;
         }
       }
     } else {
@@ -177,10 +179,11 @@ void level_schedule_and_collect (
       ns_node->nkids = 0;
       for (Int i = 0; i < node->nkids; ++i) {
         const auto& kid = node->kids[i];
-        if (kid->reserved && kid->rank == my_rank) {
-          NodeSets::Node* ns_kid = static_cast<NodeSets::Node*>(kid->reserved);
-          ns_node->kids[ns_node->nkids++] = ns_kid;
-          ns_kid->parent = ns_node;
+        if (kid->reserved >= 0 && kid->rank == my_rank) {
+          const auto ns_kid_idx = kid->reserved;
+          ns_node->kids[ns_node->nkids++] = ns_kid_idx;
+          NodeSets::Node* ns_kid = ns.host_node(ns_kid_idx);
+          ns_kid->parent = ns_node_idx;
         }
       }
     }
@@ -245,18 +248,20 @@ void init_comm (const Int my_rank, NodeSets& ns) {
   ns.nslots = 0;
   for (auto& lvl : ns.levels) {
     Int nkids = 0;
-    for (const auto& n : lvl.nodes)
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.host_node(idx);
       nkids += n->nkids;
+    }
 
     std::vector<RankNode> me(lvl.nodes.size()), kids(nkids);
     for (size_t i = 0, mi = 0, ki = 0; i < lvl.nodes.size(); ++i) {
-      const auto& n = lvl.nodes[i];
-      me[mi].first = n->parent ? n->parent->rank : my_rank;
+      const auto n = ns.host_node(lvl.nodes[i]);
+      me[mi].first = n->parent >= 0 ? ns.host_node(n->parent)->rank : my_rank;
       me[mi].second = const_cast<NodeSets::Node*>(n);
       ++mi;
       for (Int k = 0; k < n->nkids; ++k) {
-        kids[ki].first = n->kids[k]->rank;
-        kids[ki].second = const_cast<NodeSets::Node*>(n->kids[k]);
+        kids[ki].first = ns.host_node(n->kids[k])->rank;
+        kids[ki].second = ns.host_node(n->kids[k]);
         ++ki;
       }
     }
@@ -291,16 +296,19 @@ NodeSets::ConstPtr analyze (const Parallel::Ptr& p, const Int& ncells,
 }
 
 // Check that the offsets are self consistent.
-Int check_comm (const NodeSets::ConstPtr& ns) {
+Int check_comm (const NodeSets& ns) {
   Int nerr = 0;
-  std::vector<Int> offsets(ns->nslots, 0);
-  for (const auto& lvl : ns->levels)
-    for (const auto& n : lvl.nodes) {
-      cedr_assert(n->offset < ns->nslots);
+  std::vector<Int> offsets(ns.nslots, 0);
+  for (const auto& lvl : ns.levels)
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.host_node(idx);
+      cedr_assert(n->offset < ns.nslots);
       ++offsets[n->offset];
-      for (Int i = 0; i < n->nkids; ++i)
-        if (n->kids[i]->rank != n->rank)
-          ++offsets[n->kids[i]->offset];
+      for (Int i = 0; i < n->nkids; ++i) {
+        const auto kid = ns.host_node(n->kids[i]);
+        if (kid->rank != n->rank)
+          ++offsets[kid->offset];
+      }
     }
   for (const auto& e : offsets)
     if (e != 1) ++nerr;
@@ -309,17 +317,19 @@ Int check_comm (const NodeSets::ConstPtr& ns) {
 
 // Check that there are the correct number of leaf nodes, and that their offsets
 // all come first and are ordered the same as ns->levels[0]->nodes.
-Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
+Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets& ns,
                       const Int ncells) {
   Int nerr = 0;
-  cedr_assert( ! ns->levels.empty());
-  cedr_assert( ! ns->levels[0].nodes.empty());
+  cedr_assert( ! ns.levels.empty());
+  cedr_assert( ! ns.levels[0].nodes.empty());
   Int my_nleaves = 0;
-  for (const auto& n : ns->levels[0].nodes) {
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.host_node(idx);
     cedr_assert( ! n->nkids);
     ++my_nleaves;
   }
-  for (const auto& n : ns->levels[0].nodes) {
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.host_node(idx);
     cedr_assert(n->offset < my_nleaves);
     cedr_assert(n->id < ncells);
   }
@@ -331,17 +341,19 @@ Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
 }
 
 // Sum cellidx using the QLT comm pattern.
-Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
+Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets& ns,
                        const Int ncells) {
   Int nerr = 0;
   // Rank-wide data buffer.
-  std::vector<Int> data(ns->nslots);
+  std::vector<Int> data(ns.nslots);
   // Sum this rank's cellidxs.
-  for (auto& n : ns->levels[0].nodes)
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.host_node(idx);
     data[n->offset] = n->id;
+  }
   // Leaves to root.
-  for (size_t il = 0; il < ns->levels.size(); ++il) {
-    auto& lvl = ns->levels[il];
+  for (size_t il = 0; il < ns.levels.size(); ++il) {
+    auto& lvl = ns.levels[il];
     // Set up receives.
     for (size_t i = 0; i < lvl.kids.size(); ++i) {
       const auto& mmd = lvl.kids[i];
@@ -350,11 +362,12 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }
     mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
     // Combine kids' data.
-    for (auto& n : lvl.nodes) {
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.host_node(idx);
       if ( ! n->nkids) continue;
       data[n->offset] = 0;
       for (Int i = 0; i < n->nkids; ++i)
-        data[n->offset] += data[n->kids[i]->offset];
+        data[n->offset] += data[ns.host_node(n->kids[i])->offset];
     }
     // Send to parents.
     for (size_t i = 0; i < lvl.me.size(); ++i) {
@@ -363,8 +376,8 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }
   }
   // Root to leaves.
-  for (size_t il = ns->levels.size(); il > 0; --il) {
-    auto& lvl = ns->levels[il-1];
+  for (size_t il = ns.levels.size(); il > 0; --il) {
+    auto& lvl = ns.levels[il-1];
     // Get the global sum from parent.
     for (size_t i = 0; i < lvl.me.size(); ++i) {
       const auto& mmd = lvl.me[i];
@@ -373,10 +386,11 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }    
     mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
     // Pass to kids.
-    for (auto& n : lvl.nodes) {
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.host_node(idx);
       if ( ! n->nkids) continue;
       for (Int i = 0; i < n->nkids; ++i)
-        data[n->kids[i]->offset] = data[n->offset];
+        data[ns.host_node(n->kids[i])->offset] = data[n->offset];
     }
     // Send.
     for (size_t i = 0; i < lvl.kids.size(); ++i) {
@@ -386,10 +400,12 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
   }
   { // Check that all leaf nodes have the right number.
     const Int desired_sum = (ncells*(ncells - 1)) / 2;
-    for (const auto& n : ns->levels[0].nodes)
+    for (const auto& idx : ns.levels[0].nodes) {
+      const auto n = ns.host_node(idx);
       if (data[n->offset] != desired_sum) ++nerr;
-    if (p->amroot()) {
-      std::cout << " " << data[ns->levels[0].nodes[0]->offset];
+    }
+    if (false && p->amroot()) {
+      std::cout << " " << data[ns.host_node(ns.levels[0].nodes[0])->offset];
       std::cout.flush();
     }
   }
@@ -399,14 +415,18 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
 // Unit tests for NodeSets.
 Int unittest (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
               const Int ncells) {
-  Int nerr = 0;
-  nerr += check_comm(ns);
-  if (nerr) return nerr;
-  nerr += check_leaf_nodes(p, ns, ncells);
-  if (nerr) return nerr;
-  for (Int trial = 0; trial < 11; ++trial)
-    nerr += test_comm_pattern(p, ns, ncells);
-  if (nerr) return nerr;
+  Int nerr = 0, ne;
+  ne = check_comm(*ns);
+  if (ne && p->amroot()) pr("check_comm failed");
+  nerr += ne;
+  ne = check_leaf_nodes(p, *ns, ncells);
+  if (ne && p->amroot()) pr("check_leaf_nodes failed");
+  nerr += ne;
+  for (Int trial = 0; trial < 11; ++trial) {
+    ne = test_comm_pattern(p, *ns, ncells);
+    if (ne && p->amroot()) pr("test_comm_pattern failed for trial" pu(trial));
+    nerr += ne;
+  }
   return nerr;
 }
 } // namespace impl
@@ -524,8 +544,10 @@ void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
 template <typename ES>
 void QLT<ES>::init_ordinals () {
   gci2lci_ = std::make_shared<Gci2LciMap>();
-  for (const auto& n : ns_->levels[0].nodes)
+  for (const auto& idx : ns_->levels[0].nodes) {
+    const auto n = ns_->host_node(idx);
     (*gci2lci_)[n->id] = n->offset;
+  }
 }
 
 template <typename ES>
@@ -550,8 +572,10 @@ Int QLT<ES>::nlclcells () const { return ns_->levels[0].nodes.size(); }
 template <typename ES>
 void QLT<ES>::get_owned_glblcells (std::vector<Long>& gcis) const {
   gcis.resize(ns_->levels[0].nodes.size());
-  for (const auto& n : ns_->levels[0].nodes)
+  for (const auto& idx : ns_->levels[0].nodes) {
+    const auto n = ns_->host_node(idx);
     gcis[n->offset] = n->id;
+  }
 }
 
 // For global cell index cellidx, i.e., the globally unique ordinal associated
@@ -614,12 +638,14 @@ template <typename ES> void QLT<ES>
 
 template <typename ES> void QLT<ES>
 ::l2r_combine_kid_data (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
-  for (const auto& n : lvl.nodes) {
+  for (const auto& idx : lvl.nodes) {
+    const auto n = ns_->host_node(idx);
     if ( ! n->nkids) continue;
     cedr_kernel_assert(n->nkids == 2);
     // Total density.
-    bd_.l2r_data(n->offset*l2rndps) = (bd_.l2r_data(n->kids[0]->offset*l2rndps) +
-                                       bd_.l2r_data(n->kids[1]->offset*l2rndps));
+    bd_.l2r_data(n->offset*l2rndps) =
+      (bd_.l2r_data(ns_->host_node(n->kids[0])->offset*l2rndps) +
+       bd_.l2r_data(ns_->host_node(n->kids[1])->offset*l2rndps));
     // Tracers.
     for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
       const Int problem_type = md_.get_problem_type(pti);
@@ -629,8 +655,10 @@ template <typename ES> void QLT<ES>
       for (Int bi = bis; bi < bie; ++bi) {
         const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
         Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
-        const Real* const k0 = &bd_.l2r_data(n->kids[0]->offset*l2rndps + bdi);
-        const Real* const k1 = &bd_.l2r_data(n->kids[1]->offset*l2rndps + bdi);
+        const auto kid0 = ns_->host_node(n->kids[0]);
+        const auto kid1 = ns_->host_node(n->kids[1]);
+        const Real* const k0 = &bd_.l2r_data(kid0->offset*l2rndps + bdi);
+        const Real* const k1 = &bd_.l2r_data(kid1->offset*l2rndps + bdi);
         me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
         me[1] =            k0[1] + k1[1] ;
         me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
@@ -653,9 +681,10 @@ template <typename ES> void QLT<ES>
 template <typename ES> void QLT<ES>
 ::root_compute (const Int& l2rndps, const Int& r2lndps) const {
   if (ns_->levels.empty() || ns_->levels.back().nodes.size() != 1 ||
-      ns_->levels.back().nodes[0]->parent)
+      ns_->host_node(ns_->levels.back().nodes[0])->parent >= 0)
     return;
-  const auto& n = ns_->levels.back().nodes[0];
+  const auto& idx = ns_->levels.back().nodes[0];
+  const auto n = ns_->host_node(idx);
   for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
     const Int problem_type = md_.get_problem_type(pti);
     const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
@@ -696,7 +725,8 @@ template <typename ES> void QLT<ES>
 ::r2l_solve_qp (const impl::NodeSets::Level& lvl, const Int& l2rndps,
                 const Int& r2lndps) const {
   Timer::start(Timer::snp);
-  for (const auto& n : lvl.nodes) {
+  for (const auto& idx : lvl.nodes) {
+    const auto n = ns_->host_node(idx);
     if ( ! n->nkids) continue;
     for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
       const Int problem_type = md_.get_problem_type(pti);
@@ -713,14 +743,15 @@ template <typename ES> void QLT<ES>
           bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;
           bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2) = q_max;
           for (Int k = 0; k < 2; ++k) {
-            bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 0) = q_min;
-            bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 2) = q_max;
-            bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 1) = q_min;
-            bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 2) = q_max;
+            const auto os = ns_->host_node(n->kids[k])->offset;
+            bd_.l2r_data(os*l2rndps + l2rbdi + 0) = q_min;
+            bd_.l2r_data(os*l2rndps + l2rbdi + 2) = q_max;
+            bd_.r2l_data(os*r2lndps + r2lbdi + 1) = q_min;
+            bd_.r2l_data(os*r2lndps + r2lbdi + 2) = q_max;
           }
         }
-        const auto& k0 = n->kids[0];
-        const auto& k1 = n->kids[1];
+        const auto k0 = ns_->host_node(n->kids[0]);
+        const auto k1 = ns_->host_node(n->kids[1]);
         solve_node_problem(
           problem_type,
            bd_.l2r_data( n->offset*l2rndps),
