@@ -95,7 +95,7 @@ int main (int argc, char** argv) {
       nerr += cedr::test::transport1d::run(p, inp.tin);
     {
       int gnerr;
-      cedr::mpi::reduce(*p, &nerr, &gnerr, 1, MPI_SUM, p->root());
+      cedr::mpi::all_reduce(*p, &nerr, &gnerr, 1, MPI_SUM);
       retval = gnerr != 0 ? -1 : 0;
       if (p->amroot())
         std::cout << (gnerr != 0 ? "FAIL" : "PASS") << "\n";
