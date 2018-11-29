@@ -7,11 +7,25 @@ function (prc var)
   message ("${var}: ${${var}}")
 endfunction ()
 
+function (list2str list str)
+  string (REPLACE ";" " " tmp "${list}")
+  set (${str} ${tmp} PARENT_SCOPE)
+endfunction ()
+
 set (COMPOSE_DEBUG_MPI FALSE CACHE LOGICAL "If true, insert debugging code into MPI wrappers.")
+set (COMPOSE_MIMIC_GPU FALSE CACHE LOGICAL "If true, use non-optimal OpenMP threading to debug GPU-like parallelism.")
+set (COMPOSE_QLT_TIME  FALSE CACHE LOGICAL "If true, time QLT operations and display timers at the end.")
 
 if (Kokkos_DIR)
   include (${Kokkos_DIR}/kokkos_generated_settings.cmake)
   set (Kokkos_INCLUDE ${Kokkos_DIR}/include)
+  list2str ("${KOKKOS_CXXFLAGS}" Kokkos_CXX_FLAGS)
+  list2str ("${KOKKOS_LD_FLAGS}" Kokkos_LD_FLAGS)
+  string (FIND "${KOKKOS_GMAKE_DEVICES}" "Cuda" cuda_str_pos)
+  set (CUDA_BUILD FALSE)
+  if (${cuda_str_pos} GREATER -1)
+    set (CUDA_BUILD TRUE)
+  endif ()
 else ()
   message (FATAL_ERROR "COMPOSE requires Kokkos_DIR")
 endif ()
@@ -65,12 +79,16 @@ if ("${cmake_build_type_str}" STREQUAL "debug")
 endif ()
 
 if (DEBUG_BUILD)
-  message ("Enable COMPOSE_DEBUG_MPI because build type is DEBUG.")
+  message ("Enable COMPOSE_DEBUG_MPI and COMPOSE_MIMIC_GPU because build type is DEBUG.")
   set (COMPOSE_DEBUG_MPI TRUE)
+  set (COMPOSE_MIMIC_GPU TRUE)
 endif ()
 
-set (COMPOSE_COMPILE_FLAGS "-g ${KOKKOS_LINK_FLAGS} ${CMAKE_CXX_FLAGS}")
-set (COMPOSE_LINK_FLAGS "-L${Kokkos_DIR}/lib ${KOKKOS_LINK_FLAGS}")
+set (COMPOSE_COMPILE_FLAGS "-g ${Kokkos_CXX_FLAGS} ${CMAKE_CXX_FLAGS}")
+if (CUDA_BUILD)
+  set (COMPOSE_COMPILE_FLAGS "${COMPOSE_COMPILE_FLAGS} --expt-relaxed-constexpr")
+endif ()
+set (COMPOSE_LINK_FLAGS "-L${Kokkos_DIR}/lib ${Kokkos_LD_FLAGS}")
 set (COMPOSE_INCLUDES ${Kokkos_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/share ${CMAKE_BINARY_DIR}/config)
 set (COMPOSE_LIBRARIES ${KOKKOS_LIBS_LIST})
 
@@ -85,8 +103,8 @@ configure_file (${CMAKE_CURRENT_SOURCE_DIR}/compose_config.h.in ${CMAKE_BINARY_D
 
 add_library (${PROJECT_NAME} ${SOURCES})
 set_target_properties (${PROJECT_NAME} PROPERTIES
-  COMPILE_FLAGS ${COMPOSE_COMPILE_FLAGS}
-  LINK_FLAGS ${COMPOSE_LINK_FLAGS})
+  COMPILE_FLAGS "${COMPOSE_COMPILE_FLAGS}"
+  LINK_FLAGS "${COMPOSE_LINK_FLAGS}")
 target_include_directories (${PROJECT_NAME} PUBLIC cedr siqk)
 target_include_directories (${PROJECT_NAME} PRIVATE siqk cedr)
 target_include_directories (${PROJECT_NAME} PUBLIC ${COMPOSE_INCLUDES})

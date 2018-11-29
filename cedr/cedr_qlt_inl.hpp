@@ -9,7 +9,8 @@ namespace cedr {
 namespace qlt {
 
 template <typename ES> KOKKOS_INLINE_FUNCTION
-void QLT<ES>::set_rhom (const Int& lclcellidx, const Int& rhomidx, const Real& rhom) {
+void QLT<ES>::set_rhom (const Int& lclcellidx, const Int& rhomidx,
+                        const Real& rhom) const {
   const Int ndps = md_.a_d.prob2bl2r[md_.nprobtypes];
   bd_.l2r_data(ndps*lclcellidx) = rhom;  
 }
@@ -18,7 +19,7 @@ template <typename ES> KOKKOS_INLINE_FUNCTION
 void QLT<ES>::set_Qm (const Int& lclcellidx, const Int& tracer_idx,
                       const Real& Qm,
                       const Real& Qm_min, const Real& Qm_max,
-                      const Real Qm_prev) {
+                      const Real Qm_prev) const {
   const Int ndps = md_.a_d.prob2bl2r[md_.nprobtypes];
   Real* bd; {
     const Int bdi = md_.a_d.trcr2bl2r(tracer_idx);
@@ -46,7 +47,7 @@ void QLT<ES>::set_Qm (const Int& lclcellidx, const Int& tracer_idx,
 }
 
 template <typename ES> KOKKOS_INLINE_FUNCTION
-Real QLT<ES>::get_Qm (const Int& lclcellidx, const Int& tracer_idx) {
+Real QLT<ES>::get_Qm (const Int& lclcellidx, const Int& tracer_idx) const {
   const Int ndps = md_.a_d.prob2br2l[md_.nprobtypes];
   const Int bdi = md_.a_d.trcr2br2l(tracer_idx);
   return bd_.r2l_data(ndps*lclcellidx + bdi);
@@ -137,13 +138,12 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
     Qm1 = Qm_kids[1];
   }
 }
-} // namespace impl
 
-template <typename ES> KOKKOS_INLINE_FUNCTION
-void QLT<ES>::solve_node_problem (const Int problem_type,
-                                  const Real& rhom, const Real* pd, const Real& Qm,
-                                  const Real& rhom0, const Real* k0d, Real& Qm0,
-                                  const Real& rhom1, const Real* k1d, Real& Qm1) {
+KOKKOS_INLINE_FUNCTION
+void solve_node_problem (const Int problem_type,
+                         const Real& rhom, const Real* pd, const Real& Qm,
+                         const Real& rhom0, const Real* k0d, Real& Qm0,
+                         const Real& rhom1, const Real* k1d, Real& Qm1) {
   if ( ! (problem_type & ProblemType::shapepreserve)) {      
     Real mpd[3], mk0d[3], mk1d[3];
     mpd[0]  = pd [0]*rhom ; mpd [1] = pd[1] ; mpd [2] = pd [2]*rhom ;
@@ -152,9 +152,9 @@ void QLT<ES>::solve_node_problem (const Int problem_type,
     impl::solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
     return;
   }
-  impl::solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
+  solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
 }
-
+} // namespace impl
 } // namespace qlt
 } // namespace cedr
 

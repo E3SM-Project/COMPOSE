@@ -18,7 +18,7 @@ public:
   enum Op { tree, analyze, qltrun, qltrunl2r, qltrunr2l, snp, waitall,
             total, NTIMERS };
   static inline void init () {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     for (int i = 0; i < NTIMERS; ++i) {
       et_[i] = 0;
       cnt_[i] = 0;
@@ -26,19 +26,19 @@ public:
 #endif
   }
   static inline void reset (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     et_[op] = 0;
     cnt_[op] = 0;
 #endif
   }
   static inline void start (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     gettimeofday(&t_start_[op], 0);
     ++cnt_[op];
 #endif
   }
   static inline void stop (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     timeval t2;
     gettimeofday(&t2, 0);
     const timeval& t1 = t_start_[op];
@@ -51,7 +51,7 @@ public:
            #op, et_[op], 100*et_[op]/tot, cnt_[op], et_[op]/cnt_[op]);  \
   } while (0)
   static void print () {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     const double tot = et_[total];
     tpr(tree); tpr(analyze);
     tpr(qltrun); tpr(qltrunl2r); tpr(qltrunr2l); tpr(snp); tpr(waitall);
@@ -60,13 +60,13 @@ public:
   }
 #undef tpr
 private:
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
   static timeval t_start_[NTIMERS];
   static double et_[NTIMERS];
   static int cnt_[NTIMERS];
 #endif
 };
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
 timeval Timer::t_start_[Timer::NTIMERS];
 double Timer::et_[Timer::NTIMERS];
 int Timer::cnt_[Timer::NTIMERS];
@@ -76,7 +76,7 @@ namespace impl {
 void NodeSets::print (std::ostream& os) const {
   std::stringstream ss;
   if (levels.empty()) return;
-  const Int myrank = levels[0].nodes[0]->rank;
+  const Int myrank = node_h(levels[0].nodes[0])->rank;
   ss << "pid " << myrank << ":";
   ss << " #levels " << levels.size();
   for (size_t i = 0; i < levels.size(); ++i) {
@@ -84,12 +84,12 @@ void NodeSets::print (std::ostream& os) const {
     ss << "\n  " << i << ": " << lvl.nodes.size();
     std::set<Int> ps, ks;
     for (size_t j = 0; j < lvl.nodes.size(); ++j) {
-      const auto n = lvl.nodes[j];
+      const auto n = node_h(lvl.nodes[j]);
       for (Int k = 0; k < n->nkids; ++k)
-        if (n->kids[k]->rank != myrank)
-          ks.insert(n->kids[k]->rank);
-      if (n->parent && n->parent->rank != myrank)
-        ps.insert(n->parent->rank);
+        if (node_h(n->kids[k])->rank != myrank)
+          ks.insert(node_h(n->kids[k])->rank);
+      if (n->parent >= 0 && node_h(n->parent)->rank != myrank)
+        ps.insert(node_h(n->parent)->rank);
     }
     ss << " |";
     for (const auto& e : ks) ss << " " << e;
@@ -103,7 +103,7 @@ void NodeSets::print (std::ostream& os) const {
 
 // Find tree depth, assign ranks to non-leaf nodes, and init 'reserved'.
 Int init_tree (const Int& my_rank, const tree::Node::Ptr& node, Int& id) {
-  node->reserved = nullptr;
+  node->reserved = -1;
   Int depth = 0;
   for (Int i = 0; i < node->nkids; ++i) {
     cedr_assert(node.get() == node->kids[i]->parent);
@@ -140,36 +140,38 @@ void level_schedule_and_collect (
   const bool node_is_owned = node->rank == my_rank;
   need_parent_ns_node = node_is_owned;
   if (node_is_owned || make_ns_node) {
-    cedr_assert( ! node->reserved);
-    NodeSets::Node* ns_node = ns.alloc();
+    cedr_assert(node->reserved == -1);
+    const auto ns_node_idx = ns.alloc();
     // Levels hold only owned nodes.
-    if (node_is_owned) ns.levels[level].nodes.push_back(ns_node);
-    node->reserved = ns_node;
+    if (node_is_owned) ns.levels[level].nodes.push_back(ns_node_idx);
+    node->reserved = ns_node_idx;
+    NodeSets::Node* ns_node = ns.node_h(ns_node_idx);
     ns_node->rank = node->rank;
     ns_node->id = node->cellidx;
-    ns_node->parent = nullptr;
     if (node_is_owned) {
       // If this node is owned, it needs to have information about all kids.
       ns_node->nkids = node->nkids;
       for (Int i = 0; i < node->nkids; ++i) {
         const auto& kid = node->kids[i];
-        if ( ! kid->reserved) {
+        if (kid->reserved == -1) {
           // This kid isn't owned by this rank. But need it for irecv.
-          NodeSets::Node* ns_kid;
-          kid->reserved = ns_kid = ns.alloc();
-          ns_node->kids[i] = ns_kid;
+          const auto ns_kid_idx = ns.alloc();
+          NodeSets::Node* ns_kid = ns.node_h(ns_kid_idx);
+          kid->reserved = ns_kid_idx;
+          ns_node = ns.node_h(ns_node_idx);
+          ns_node->kids[i] = ns_kid_idx;
           cedr_assert(kid->rank != my_rank);
           ns_kid->rank = kid->rank;
           ns_kid->id = kid->cellidx;
-          ns_kid->parent = nullptr; // Not needed.
           // The kid may have kids in the original tree, but in the tree pruned
           // according to rank, it does not.
           ns_kid->nkids = 0;
         } else {
           // This kid is owned by this rank, so fill in its parent pointer.
-          NodeSets::Node* ns_kid = static_cast<NodeSets::Node*>(kid->reserved);
-          ns_node->kids[i] = ns_kid;
-          ns_kid->parent = ns_node;
+          NodeSets::Node* ns_kid = ns.node_h(kid->reserved);
+          ns_node = ns.node_h(ns_node_idx);
+          ns_node->kids[i] = kid->reserved;
+          ns_kid->parent = ns_node_idx;
         }
       }
     } else {
@@ -177,10 +179,11 @@ void level_schedule_and_collect (
       ns_node->nkids = 0;
       for (Int i = 0; i < node->nkids; ++i) {
         const auto& kid = node->kids[i];
-        if (kid->reserved && kid->rank == my_rank) {
-          NodeSets::Node* ns_kid = static_cast<NodeSets::Node*>(kid->reserved);
-          ns_node->kids[ns_node->nkids++] = ns_kid;
-          ns_kid->parent = ns_node;
+        if (kid->reserved >= 0 && kid->rank == my_rank) {
+          const auto ns_kid_idx = kid->reserved;
+          ns_node->kids[ns_node->nkids++] = ns_kid_idx;
+          NodeSets::Node* ns_kid = ns.node_h(ns_kid_idx);
+          ns_kid->parent = ns_node_idx;
         }
       }
     }
@@ -245,18 +248,20 @@ void init_comm (const Int my_rank, NodeSets& ns) {
   ns.nslots = 0;
   for (auto& lvl : ns.levels) {
     Int nkids = 0;
-    for (const auto& n : lvl.nodes)
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.node_h(idx);
       nkids += n->nkids;
+    }
 
     std::vector<RankNode> me(lvl.nodes.size()), kids(nkids);
     for (size_t i = 0, mi = 0, ki = 0; i < lvl.nodes.size(); ++i) {
-      const auto& n = lvl.nodes[i];
-      me[mi].first = n->parent ? n->parent->rank : my_rank;
+      const auto n = ns.node_h(lvl.nodes[i]);
+      me[mi].first = n->parent >= 0 ? ns.node_h(n->parent)->rank : my_rank;
       me[mi].second = const_cast<NodeSets::Node*>(n);
       ++mi;
       for (Int k = 0; k < n->nkids; ++k) {
-        kids[ki].first = n->kids[k]->rank;
-        kids[ki].second = const_cast<NodeSets::Node*>(n->kids[k]);
+        kids[ki].first = ns.node_h(n->kids[k])->rank;
+        kids[ki].second = ns.node_h(n->kids[k]);
         ++ki;
       }
     }
@@ -291,16 +296,19 @@ NodeSets::ConstPtr analyze (const Parallel::Ptr& p, const Int& ncells,
 }
 
 // Check that the offsets are self consistent.
-Int check_comm (const NodeSets::ConstPtr& ns) {
+Int check_comm (const NodeSets& ns) {
   Int nerr = 0;
-  std::vector<Int> offsets(ns->nslots, 0);
-  for (const auto& lvl : ns->levels)
-    for (const auto& n : lvl.nodes) {
-      cedr_assert(n->offset < ns->nslots);
+  std::vector<Int> offsets(ns.nslots, 0);
+  for (const auto& lvl : ns.levels)
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.node_h(idx);
+      cedr_assert(n->offset < ns.nslots);
       ++offsets[n->offset];
-      for (Int i = 0; i < n->nkids; ++i)
-        if (n->kids[i]->rank != n->rank)
-          ++offsets[n->kids[i]->offset];
+      for (Int i = 0; i < n->nkids; ++i) {
+        const auto kid = ns.node_h(n->kids[i]);
+        if (kid->rank != n->rank)
+          ++offsets[kid->offset];
+      }
     }
   for (const auto& e : offsets)
     if (e != 1) ++nerr;
@@ -309,17 +317,19 @@ Int check_comm (const NodeSets::ConstPtr& ns) {
 
 // Check that there are the correct number of leaf nodes, and that their offsets
 // all come first and are ordered the same as ns->levels[0]->nodes.
-Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
+Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets& ns,
                       const Int ncells) {
   Int nerr = 0;
-  cedr_assert( ! ns->levels.empty());
-  cedr_assert( ! ns->levels[0].nodes.empty());
+  cedr_assert( ! ns.levels.empty());
+  cedr_assert( ! ns.levels[0].nodes.empty());
   Int my_nleaves = 0;
-  for (const auto& n : ns->levels[0].nodes) {
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.node_h(idx);
     cedr_assert( ! n->nkids);
     ++my_nleaves;
   }
-  for (const auto& n : ns->levels[0].nodes) {
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.node_h(idx);
     cedr_assert(n->offset < my_nleaves);
     cedr_assert(n->id < ncells);
   }
@@ -331,17 +341,19 @@ Int check_leaf_nodes (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
 }
 
 // Sum cellidx using the QLT comm pattern.
-Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
+Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets& ns,
                        const Int ncells) {
   Int nerr = 0;
   // Rank-wide data buffer.
-  std::vector<Int> data(ns->nslots);
+  std::vector<Int> data(ns.nslots);
   // Sum this rank's cellidxs.
-  for (auto& n : ns->levels[0].nodes)
+  for (const auto& idx : ns.levels[0].nodes) {
+    const auto n = ns.node_h(idx);
     data[n->offset] = n->id;
+  }
   // Leaves to root.
-  for (size_t il = 0; il < ns->levels.size(); ++il) {
-    auto& lvl = ns->levels[il];
+  for (size_t il = 0; il < ns.levels.size(); ++il) {
+    auto& lvl = ns.levels[il];
     // Set up receives.
     for (size_t i = 0; i < lvl.kids.size(); ++i) {
       const auto& mmd = lvl.kids[i];
@@ -350,11 +362,12 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }
     mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
     // Combine kids' data.
-    for (auto& n : lvl.nodes) {
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.node_h(idx);
       if ( ! n->nkids) continue;
       data[n->offset] = 0;
       for (Int i = 0; i < n->nkids; ++i)
-        data[n->offset] += data[n->kids[i]->offset];
+        data[n->offset] += data[ns.node_h(n->kids[i])->offset];
     }
     // Send to parents.
     for (size_t i = 0; i < lvl.me.size(); ++i) {
@@ -363,8 +376,8 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }
   }
   // Root to leaves.
-  for (size_t il = ns->levels.size(); il > 0; --il) {
-    auto& lvl = ns->levels[il-1];
+  for (size_t il = ns.levels.size(); il > 0; --il) {
+    auto& lvl = ns.levels[il-1];
     // Get the global sum from parent.
     for (size_t i = 0; i < lvl.me.size(); ++i) {
       const auto& mmd = lvl.me[i];
@@ -373,10 +386,11 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
     }    
     mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
     // Pass to kids.
-    for (auto& n : lvl.nodes) {
+    for (const auto& idx : lvl.nodes) {
+      const auto n = ns.node_h(idx);
       if ( ! n->nkids) continue;
       for (Int i = 0; i < n->nkids; ++i)
-        data[n->kids[i]->offset] = data[n->offset];
+        data[ns.node_h(n->kids[i])->offset] = data[n->offset];
     }
     // Send.
     for (size_t i = 0; i < lvl.kids.size(); ++i) {
@@ -386,10 +400,12 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
   }
   { // Check that all leaf nodes have the right number.
     const Int desired_sum = (ncells*(ncells - 1)) / 2;
-    for (const auto& n : ns->levels[0].nodes)
+    for (const auto& idx : ns.levels[0].nodes) {
+      const auto n = ns.node_h(idx);
       if (data[n->offset] != desired_sum) ++nerr;
-    if (p->amroot()) {
-      std::cout << " " << data[ns->levels[0].nodes[0]->offset];
+    }
+    if (false && p->amroot()) {
+      std::cout << " " << data[ns.node_h(ns.levels[0].nodes[0])->offset];
       std::cout.flush();
     }
   }
@@ -399,14 +415,18 @@ Int test_comm_pattern (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
 // Unit tests for NodeSets.
 Int unittest (const Parallel::Ptr& p, const NodeSets::ConstPtr& ns,
               const Int ncells) {
-  Int nerr = 0;
-  nerr += check_comm(ns);
-  if (nerr) return nerr;
-  nerr += check_leaf_nodes(p, ns, ncells);
-  if (nerr) return nerr;
-  for (Int trial = 0; trial < 11; ++trial)
-    nerr += test_comm_pattern(p, ns, ncells);
-  if (nerr) return nerr;
+  Int nerr = 0, ne;
+  ne = check_comm(*ns);
+  if (ne && p->amroot()) pr("check_comm failed");
+  nerr += ne;
+  ne = check_leaf_nodes(p, *ns, ncells);
+  if (ne && p->amroot()) pr("check_leaf_nodes failed");
+  nerr += ne;
+  for (Int trial = 0; trial < 11; ++trial) {
+    ne = test_comm_pattern(p, *ns, ncells);
+    if (ne && p->amroot()) pr("test_comm_pattern failed for trial" pu(trial));
+    nerr += ne;
+  }
   return nerr;
 }
 } // namespace impl
@@ -418,9 +438,10 @@ void QLT<ES>::init (const std::string& name, IntList& d,
   h = Kokkos::create_mirror_view(d);
 }
 
-template <typename ES>
+template <typename ES> KOKKOS_INLINE_FUNCTION
 int QLT<ES>::MetaData::get_problem_type (const int& idx) {
-  return problem_type_[idx];
+  static const Int problem_type[] = { CPT::st, CPT::cst, CPT::t, CPT::ct };
+  return problem_type[idx];
 }
     
 // icpc doesn't let us use problem_type_ here, even though it's constexpr.
@@ -435,7 +456,7 @@ int QLT<ES>::MetaData::get_problem_type_idx (const int& mask) {
   }
 }
 
-template <typename ES>
+template <typename ES> KOKKOS_INLINE_FUNCTION
 int QLT<ES>::MetaData::get_problem_type_l2r_bulk_size (const int& mask) {
   if (mask & ProblemType::conserve) return 4;
   return 3;
@@ -467,7 +488,7 @@ void QLT<ES>::MetaData::init (const MetaDataBuilder& mdb) {
     const Int r2lbulksz = get_problem_type_r2l_bulk_size(get_problem_type(pi));
     for (Int ti = 0; ti < ntracers; ++ti) {
       const auto problem_type = a_h_.trcr2prob[ti];
-      if (problem_type != problem_type_[pi]) continue;
+      if (problem_type != get_problem_type(pi)) continue;
       const auto tcnt = a_h_.prob2trcrptr[pi+1] - a_h_.prob2trcrptr[pi];
       a_h_.trcr2bl2r[ti] = a_h_.prob2bl2r[pi] + tcnt*l2rbulksz;
       a_h_.trcr2br2l[ti] = a_h_.prob2br2l[pi] + tcnt*r2lbulksz;
@@ -485,7 +506,7 @@ void QLT<ES>::MetaData::init (const MetaDataBuilder& mdb) {
   for (Int ti = 0; ti < ntracers; ++ti)
     a_h_.trcr2bidx(a_h_.bidx2trcr(ti)) = ti;
   Kokkos::deep_copy(a_d_.trcr2bidx, a_h_.trcr2bidx);
-            
+
   a_h = a_h_;
 
   // Won't default construct Unmanaged, so have to do pointer stuff and raw
@@ -511,11 +532,42 @@ void QLT<ES>::BulkData::init (const MetaData& md, const Int& nslots) {
 }
 
 template <typename ES>
+void init_device_data (const impl::NodeSets& ns, impl::NodeSetsHostData& h,
+                       impl::NodeSetsDeviceData<ES>& d) {
+  typedef impl::NodeSetsDeviceData<ES> NSDD;
+  d.node = typename NSDD::NodeList("NSDD::node", ns.nnode());
+  h.node = Kokkos::create_mirror_view(d.node);
+  d.lvlptr = typename NSDD::IntList("NSDD::lvlptr", ns.levels.size() + 1);
+  h.lvlptr = Kokkos::create_mirror_view(d.lvlptr);
+  Int nnode = 0;
+  for (const auto& lvl : ns.levels)
+    nnode += lvl.nodes.size();
+  d.lvl = typename NSDD::IntList("NSDD::lvl", nnode);
+  h.lvl = Kokkos::create_mirror_view(d.lvl);
+  h.lvlptr(0) = 0;
+  for (size_t il = 0; il < ns.levels.size(); ++il) {
+    const auto& level = ns.levels[il];
+    h.lvlptr(il+1) = h.lvlptr(il) + level.nodes.size();
+    for (Int os = h.lvlptr(il), i = 0; i < h.lvlptr(il+1) - os; ++i)
+      h.lvl(os+i) = level.nodes[i];
+    nnode += level.nodes.size();
+  }
+  for (Int i = 0; i < ns.nnode(); ++i)
+    h.node(i) = *ns.node_h(i);
+  Kokkos::deep_copy(d.node, h.node);
+  Kokkos::deep_copy(d.lvl, h.lvl);
+  Kokkos::deep_copy(d.lvlptr, h.lvlptr);
+}
+
+template <typename ES>
 void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
                     const tree::Node::Ptr& tree) {
   p_ = p;
   Timer::start(Timer::analyze);
   ns_ = impl::analyze(p, ncells, tree);
+  nshd_ = std::make_shared<impl::NodeSetsHostData>();
+  nsdd_ = std::make_shared<impl::NodeSetsDeviceData<ES> >();
+  init_device_data(*ns_, *nshd_, *nsdd_);
   init_ordinals();
   Timer::stop(Timer::analyze);
   mdb_ = std::make_shared<MetaDataBuilder>();
@@ -523,8 +575,11 @@ void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
 
 template <typename ES>
 void QLT<ES>::init_ordinals () {
-  for (const auto& n : ns_->levels[0].nodes)
-    gci2lci_[n->id] = n->offset;
+  gci2lci_ = std::make_shared<Gci2LciMap>();
+  for (const auto& idx : ns_->levels[0].nodes) {
+    const auto n = ns_->node_h(idx);
+    (*gci2lci_)[n->id] = n->offset;
+  }
 }
 
 template <typename ES>
@@ -549,8 +604,10 @@ Int QLT<ES>::nlclcells () const { return ns_->levels[0].nodes.size(); }
 template <typename ES>
 void QLT<ES>::get_owned_glblcells (std::vector<Long>& gcis) const {
   gcis.resize(ns_->levels[0].nodes.size());
-  for (const auto& n : ns_->levels[0].nodes)
+  for (const auto& idx : ns_->levels[0].nodes) {
+    const auto n = ns_->node_h(idx);
     gcis[n->offset] = n->id;
+  }
 }
 
 // For global cell index cellidx, i.e., the globally unique ordinal associated
@@ -558,21 +615,21 @@ void QLT<ES>::get_owned_glblcells (std::vector<Long>& gcis) const {
 // it. This is not an efficient operation.
 template <typename ES>
 Int QLT<ES>::gci2lci (const Int& gci) const {
-  const auto it = gci2lci_.find(gci);
-  if (it == gci2lci_.end()) {
+  const auto it = gci2lci_->find(gci);
+  if (it == gci2lci_->end()) {
     pr(puf(gci));
     std::vector<Long> gcis;
     get_owned_glblcells(gcis);
     mprarr(gcis);
   }
-  cedr_throw_if(it == gci2lci_.end(), "gci " << gci << " not in gci2lci map.");
+  cedr_throw_if(it == gci2lci_->end(), "gci " << gci << " not in gci2lci map.");
   return it->second;
 }
 
 template <typename ES>
 void QLT<ES>::declare_tracer (int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! mdb_, "end_tracer_declarations was already called; "
-                "it is an error to call declare_tracer now.");
+                 "it is an error to call declare_tracer now.");
   cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   // For its exception side effect, and to get canonical problem type, since
   // some possible problem types map to the same canonical one:
@@ -599,36 +656,78 @@ Int QLT<ES>::get_num_tracers () const {
   return md_.a_h.trcr2prob.size();
 }
 
-template <typename ES>
-void QLT<ES>::run () {
-  Timer::start(Timer::qltrunl2r);
-  using namespace impl;
-  // Number of data per slot.
-  const Int l2rndps = md_.a_d.prob2bl2r[md_.nprobtypes];
-  const Int r2lndps = md_.a_d.prob2br2l[md_.nprobtypes];
-  // Leaves to root.
-  for (size_t il = 0; il < ns_->levels.size(); ++il) {
-    auto& lvl = ns_->levels[il];
-    // Set up receives.
-    if (lvl.kids.size()) {
-      for (size_t i = 0; i < lvl.kids.size(); ++i) {
-        const auto& mmd = lvl.kids[i];
-        mpi::irecv(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.kids_req[i]);
+template <typename ES> void QLT<ES>
+::l2r_recv (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
+  for (size_t i = 0; i < lvl.kids.size(); ++i) {
+    const auto& mmd = lvl.kids[i];
+    mpi::irecv(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
+               mmd.rank, impl::NodeSets::mpitag, &lvl.kids_req[i]);
+  }
+  Timer::start(Timer::waitall);
+  mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
+  Timer::stop(Timer::waitall);
+}
+
+template <typename ES> void QLT<ES>
+::l2r_combine_kid_data (const Int& lvlidx, const Int& l2rndps) const {
+  if (cedr::impl::OnGpu<ES>::value) {
+    const auto d = *nsdd_;
+    const auto l2r_data = bd_.l2r_data;
+    const auto a = md_.a_d;
+    const Int ntracer = a.trcr2prob.size();
+    const Int nfield = ntracer + 1;
+    const Int lvl_os = nshd_->lvlptr(lvlidx);
+    const Int N = nfield*(nshd_->lvlptr(lvlidx+1) - lvl_os);
+    const auto combine_kid_data = KOKKOS_LAMBDA (const Int& k) {
+      //for (int k = 0; k < N; ++k) {
+      const Int il = lvl_os + k / nfield;
+      const Int fi = k % nfield;
+      const auto node_idx = d.lvl(il);
+      const auto& n = d.node(node_idx);
+      if ( ! n.nkids) return;
+      cedr_kernel_assert(n.nkids == 2);
+      if (fi == 0) {
+        // Total density.
+        l2r_data(n.offset*l2rndps) =
+          (l2r_data(d.node(n.kids[0]).offset*l2rndps) +
+           l2r_data(d.node(n.kids[1]).offset*l2rndps));
+      } else {
+        // Tracers. Order by bulk index for efficiency of memory access.
+        const Int bi = fi - 1; // bulk index
+        const Int ti = a.bidx2trcr(bi); // tracer (user) index
+        const Int problem_type = a.trcr2prob(ti);
+        const bool sum_only = problem_type & ProblemType::shapepreserve;
+        const Int bsz = MetaData::get_problem_type_l2r_bulk_size(problem_type);
+        const Int bdi = a.trcr2bl2r(ti);
+        Real* const me = &l2r_data(n.offset*l2rndps + bdi);
+        const auto& kid0 = d.node(n.kids[0]);
+        const auto& kid1 = d.node(n.kids[1]);
+        const Real* const k0 = &l2r_data(kid0.offset*l2rndps + bdi);
+        const Real* const k1 = &l2r_data(kid1.offset*l2rndps + bdi);
+        me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+        me[1] =            k0[1] + k1[1] ;
+        me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+        if (bsz == 4)
+          me[3] =          k0[3] + k1[3] ;
       }
-      //todo Replace with simultaneous waitany and isend.
-      Timer::start(Timer::waitall);
-      mpi::waitall(lvl.kids_req.size(), lvl.kids_req.data());
-      Timer::stop(Timer::waitall);
-    }
-    // Combine kids' data.
-    //todo Kernelize, interacting with waitany todo above.
-    for (const auto& n : lvl.nodes) {
+    };
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), combine_kid_data);
+    Kokkos::fence();
+  } else {
+    const auto& lvl = ns_->levels[lvlidx];
+    const Int n_lvl_nodes = lvl.nodes.size();
+#ifdef KOKKOS_ENABLE_OPENMP
+#   pragma omp parallel for
+#endif
+    for (Int ni = 0; ni < n_lvl_nodes; ++ni) {
+      const auto lvlidx = lvl.nodes[ni];
+      const auto n = ns_->node_h(lvlidx);
       if ( ! n->nkids) continue;
-      cedr_kernel_assert(n->nkids == 2);
+      cedr_assert(n->nkids == 2);
       // Total density.
-      bd_.l2r_data(n->offset*l2rndps) = (bd_.l2r_data(n->kids[0]->offset*l2rndps) +
-                                         bd_.l2r_data(n->kids[1]->offset*l2rndps));
+      bd_.l2r_data(n->offset*l2rndps) =
+        (bd_.l2r_data(ns_->node_h(n->kids[0])->offset*l2rndps) +
+         bd_.l2r_data(ns_->node_h(n->kids[1])->offset*l2rndps));
       // Tracers.
       for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
         const Int problem_type = md_.get_problem_type(pti);
@@ -638,8 +737,10 @@ void QLT<ES>::run () {
         for (Int bi = bis; bi < bie; ++bi) {
           const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
           Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
-          const Real* const k0 = &bd_.l2r_data(n->kids[0]->offset*l2rndps + bdi);
-          const Real* const k1 = &bd_.l2r_data(n->kids[1]->offset*l2rndps + bdi);
+          const auto kid0 = ns_->node_h(n->kids[0]);
+          const auto kid1 = ns_->node_h(n->kids[1]);
+          const Real* const k0 = &bd_.l2r_data(kid0->offset*l2rndps + bdi);
+          const Real* const k1 = &bd_.l2r_data(kid1->offset*l2rndps + bdi);
           me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
           me[1] =            k0[1] + k1[1] ;
           me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
@@ -648,61 +749,145 @@ void QLT<ES>::run () {
         }
       }
     }
-    // Send to parents.
-    if (lvl.me.size()) {
-      for (size_t i = 0; i < lvl.me.size(); ++i) {
-        const auto& mmd = lvl.me[i];
-        mpi::isend(*p_, &bd_.l2r_data(mmd.offset*l2rndps), mmd.size*l2rndps, mmd.rank,
-                   NodeSets::mpitag);
-      }
-    }
   }
-  Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
-  // Root.
-  if ( ! ns_->levels.empty() && ns_->levels.back().nodes.size() == 1 &&
-       ! ns_->levels.back().nodes[0]->parent) {
-    const auto& n = ns_->levels.back().nodes[0];
-    for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
-      const Int problem_type = md_.get_problem_type(pti);
-      const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
-      for (Int bi = bis; bi < bie; ++bi) {
-        const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
-        const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
-        // If QLT is enforcing global mass conservation, set the root's r2l Qm
-        // value to the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to
-        // the r2l one.
-        const Int os = problem_type & ProblemType::conserve ? 3 : 1;
-        bd_.r2l_data(n->offset*r2lndps + r2lbdi) =
-          bd_.l2r_data(n->offset*l2rndps + l2rbdi + os);
-        if ( ! (problem_type & ProblemType::shapepreserve)) {
-          // We now know the global q_{min,max}. Start propagating it
-          // leafward.
-          bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1) =
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0);
-          bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2) =
-            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2);
-        }
-      }
+}
+
+template <typename ES> void QLT<ES>
+::l2r_send_to_parents (const impl::NodeSets::Level& lvl, const Int& l2rndps) const {
+  for (size_t i = 0; i < lvl.me.size(); ++i) {
+    const auto& mmd = lvl.me[i];
+    mpi::isend(*p_, bd_.l2r_data.data() + mmd.offset*l2rndps, mmd.size*l2rndps,
+               mmd.rank, impl::NodeSets::mpitag);
+  }  
+}
+
+template <typename ES> void QLT<ES>
+::root_compute (const Int& l2rndps, const Int& r2lndps) const {
+  if (ns_->levels.empty() || ns_->levels.back().nodes.size() != 1 ||
+      ns_->node_h(ns_->levels.back().nodes[0])->parent >= 0)
+    return;
+  const auto d = *nsdd_;
+  const auto l2r_data = bd_.l2r_data;
+  const auto r2l_data = bd_.r2l_data;
+  const auto a = md_.a_d;
+  const Int nlev = nshd_->lvlptr.size() - 1;
+  const Int node_idx = nshd_->lvl(nshd_->lvlptr(nlev-1));
+  const Int ntracer = a.trcr2prob.size();
+  const auto compute = KOKKOS_LAMBDA (const Int& bi) {
+    const auto& n = d.node(node_idx);
+    const Int ti = a.bidx2trcr(bi);
+    const Int problem_type = a.trcr2prob(ti);
+    const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
+    const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
+    // If QLT is enforcing global mass conservation, set the root's r2l Qm
+    // value to the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to
+    // the r2l one.
+    const Int os = problem_type & ProblemType::conserve ? 3 : 1;
+    r2l_data(n.offset*r2lndps + r2lbdi) = l2r_data(n.offset*l2rndps + l2rbdi + os);
+    if ( ! (problem_type & ProblemType::shapepreserve)) {
+      // We now know the global q_{min,max}. Start propagating it leafward.
+      r2l_data(n.offset*r2lndps + r2lbdi + 1) = l2r_data(n.offset*l2rndps + l2rbdi + 0);
+      r2l_data(n.offset*r2lndps + r2lbdi + 2) = l2r_data(n.offset*l2rndps + l2rbdi + 2);
     }
+  };
+  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, ntracer), compute);
+  Kokkos::fence();
+}
+
+template <typename ES> void QLT<ES>
+::r2l_recv (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
+  for (size_t i = 0; i < lvl.me.size(); ++i) {
+    const auto& mmd = lvl.me[i];
+    mpi::irecv(*p_, bd_.r2l_data.data() + mmd.offset*r2lndps, mmd.size*r2lndps,
+               mmd.rank, impl::NodeSets::mpitag, &lvl.me_recv_req[i]);
   }
-  // Root to leaves.
-  for (size_t il = ns_->levels.size(); il > 0; --il) {
-    auto& lvl = ns_->levels[il-1];
-    if (lvl.me.size()) {
-      for (size_t i = 0; i < lvl.me.size(); ++i) {
-        const auto& mmd = lvl.me[i];
-        mpi::irecv(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag, &lvl.me_recv_req[i]);
+  Timer::start(Timer::waitall);
+  mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
+  Timer::stop(Timer::waitall);
+}
+
+template <typename Data> KOKKOS_INLINE_FUNCTION
+void r2l_solve_qp_set_q (
+  const Data& l2r_data, const Data& r2l_data,
+  const Int& os, const Int& l2rndps, const Int& r2lndps,
+  const Int& l2rbdi, const Int& r2lbdi, const Real& q_min, const Real& q_max)
+{
+  l2r_data(os*l2rndps + l2rbdi + 0) = q_min;
+  l2r_data(os*l2rndps + l2rbdi + 2) = q_max;
+  r2l_data(os*r2lndps + r2lbdi + 1) = q_min;
+  r2l_data(os*r2lndps + r2lbdi + 2) = q_max; 
+}
+
+template <typename Data> KOKKOS_INLINE_FUNCTION
+void r2l_solve_qp_solve_node_problem (
+  const Data& l2r_data, const Data& r2l_data, const Int& problem_type,
+  const impl::NodeSets::Node& n,
+  const impl::NodeSets::Node& k0, const impl::NodeSets::Node& k1,
+  const Int& l2rndps, const Int& r2lndps,
+  const Int& l2rbdi, const Int& r2lbdi)
+{
+  impl::solve_node_problem(
+    problem_type,
+     l2r_data( n.offset*l2rndps),
+    &l2r_data( n.offset*l2rndps + l2rbdi),
+     r2l_data( n.offset*r2lndps + r2lbdi),
+     l2r_data(k0.offset*l2rndps),
+    &l2r_data(k0.offset*l2rndps + l2rbdi),
+     r2l_data(k0.offset*r2lndps + r2lbdi),
+     l2r_data(k1.offset*l2rndps),
+    &l2r_data(k1.offset*l2rndps + l2rbdi),
+     r2l_data(k1.offset*r2lndps + r2lbdi));
+}
+
+template <typename ES> void QLT<ES>
+::r2l_solve_qp (const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const {
+  Timer::start(Timer::snp);
+  if (cedr::impl::OnGpu<ES>::value) {
+    const auto d = *nsdd_;
+    const auto l2r_data = bd_.l2r_data;
+    const auto r2l_data = bd_.r2l_data;
+    const auto a = md_.a_d;
+    const Int ntracer = a.trcr2prob.size();
+    const Int lvl_os = nshd_->lvlptr(lvlidx);
+    const Int N = ntracer*(nshd_->lvlptr(lvlidx+1) - lvl_os);
+    const auto solve_qp = KOKKOS_LAMBDA (const Int& k) {
+      const Int il = lvl_os + k / ntracer;
+      const Int bi = k % ntracer;
+      const auto node_idx = d.lvl(il);
+      const auto& n = d.node(node_idx);
+      if ( ! n.nkids) return;
+      const Int ti = a.bidx2trcr(bi);
+      const Int problem_type = a.trcr2prob(ti);
+      const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
+      const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
+      cedr_kernel_assert(n.nkids == 2);
+      if ( ! (problem_type & ProblemType::shapepreserve)) {
+        // Pass q_{min,max} info along. l2r data are updated for use
+        // in solve_node_problem. r2l data are updated for use in
+        // isend.
+        const Real q_min = r2l_data(n.offset*r2lndps + r2lbdi + 1);
+        const Real q_max = r2l_data(n.offset*r2lndps + r2lbdi + 2);
+        l2r_data(n.offset*l2rndps + l2rbdi + 0) = q_min;
+        l2r_data(n.offset*l2rndps + l2rbdi + 2) = q_max;
+        for (Int k = 0; k < 2; ++k)
+          r2l_solve_qp_set_q(l2r_data, r2l_data, d.node(n.kids[k]).offset,
+                             l2rndps, r2lndps, l2rbdi, r2lbdi, q_min, q_max);
       }
-      //todo Replace with simultaneous waitany and isend.
-      Timer::start(Timer::waitall);
-      mpi::waitall(lvl.me_recv_req.size(), lvl.me_recv_req.data());
-      Timer::stop(Timer::waitall);
-    }
-    // Solve QP for kids' values.
-    //todo Kernelize, interacting with waitany todo above.
-    Timer::start(Timer::snp);
-    for (const auto& n : lvl.nodes) {
+      r2l_solve_qp_solve_node_problem(
+        l2r_data, r2l_data, problem_type, n, d.node(n.kids[0]), d.node(n.kids[1]),
+        l2rndps, r2lndps, l2rbdi, r2lbdi);
+    };
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
+    Kokkos::fence();
+  } else {
+    const auto& lvl = ns_->levels[lvlidx];
+    const Int n_lvl_nodes = lvl.nodes.size();
+#ifdef KOKKOS_ENABLE_OPENMP
+#   pragma omp parallel for
+#endif
+    for (Int ni = 0; ni < n_lvl_nodes; ++ni) {
+      const auto lvlidx = lvl.nodes[ni];
+      const auto n = ns_->node_h(lvlidx);
       if ( ! n->nkids) continue;
       for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
         const Int problem_type = md_.get_problem_type(pti);
@@ -712,49 +897,56 @@ void QLT<ES>::run () {
           const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
           cedr_assert(n->nkids == 2);
           if ( ! (problem_type & ProblemType::shapepreserve)) {
-            // Pass q_{min,max} info along. l2r data are updated for use in
-            // solve_node_problem. r2l data are updated for use in isend.
             const Real q_min = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1);
             const Real q_max = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2);
             bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;
             bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2) = q_max;
-            for (Int k = 0; k < 2; ++k) {
-              bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 0) = q_min;
-              bd_.l2r_data(n->kids[k]->offset*l2rndps + l2rbdi + 2) = q_max;
-              bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 1) = q_min;
-              bd_.r2l_data(n->kids[k]->offset*r2lndps + r2lbdi + 2) = q_max;
-            }
+            for (Int k = 0; k < 2; ++k)
+              r2l_solve_qp_set_q(bd_.l2r_data, bd_.r2l_data,
+                                 ns_->node_h(n->kids[k])->offset,
+                                 l2rndps, r2lndps, l2rbdi, r2lbdi, q_min, q_max);
           }
-          const auto& k0 = n->kids[0];
-          const auto& k1 = n->kids[1];
-          solve_node_problem(
-            problem_type,
-             bd_.l2r_data( n->offset*l2rndps),
-            &bd_.l2r_data( n->offset*l2rndps + l2rbdi),
-             bd_.r2l_data( n->offset*r2lndps + r2lbdi),
-             bd_.l2r_data(k0->offset*l2rndps),
-            &bd_.l2r_data(k0->offset*l2rndps + l2rbdi),
-             bd_.r2l_data(k0->offset*r2lndps + r2lbdi),
-             bd_.l2r_data(k1->offset*l2rndps),
-            &bd_.l2r_data(k1->offset*l2rndps + l2rbdi),
-             bd_.r2l_data(k1->offset*r2lndps + r2lbdi));
+          r2l_solve_qp_solve_node_problem(
+            bd_.l2r_data, bd_.r2l_data, problem_type, *n, *ns_->node_h(n->kids[0]),
+            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi);
         }
       }
     }
-    Timer::stop(Timer::snp);
-    // Send.
-    if (lvl.kids.size())
-      for (size_t i = 0; i < lvl.kids.size(); ++i) {
-        const auto& mmd = lvl.kids[i];
-        mpi::isend(*p_, &bd_.r2l_data(mmd.offset*r2lndps), mmd.size*r2lndps, mmd.rank,
-                   NodeSets::mpitag);
-      }
   }
-  Timer::stop(Timer::qltrunr2l);
+  Timer::stop(Timer::snp);
+}
+
+template <typename ES> void QLT<ES>
+::r2l_send_to_kids (const impl::NodeSets::Level& lvl, const Int& r2lndps) const {
+  for (size_t i = 0; i < lvl.kids.size(); ++i) {
+    const auto& mmd = lvl.kids[i];
+    mpi::isend(*p_, bd_.r2l_data.data() + mmd.offset*r2lndps, mmd.size*r2lndps,
+               mmd.rank, impl::NodeSets::mpitag);
+  }
 }
 
 template <typename ES>
-constexpr Int QLT<ES>::MetaData::problem_type_[];
+void QLT<ES>::run () {
+  Timer::start(Timer::qltrunl2r);
+  // Number of data per slot.
+  const Int l2rndps = md_.a_h.prob2bl2r[md_.nprobtypes];
+  const Int r2lndps = md_.a_h.prob2br2l[md_.nprobtypes];
+  for (size_t il = 0; il < ns_->levels.size(); ++il) {
+    auto& lvl = ns_->levels[il];
+    if (lvl.kids.size()) l2r_recv(lvl, l2rndps);
+    l2r_combine_kid_data(il, l2rndps);    
+    if (lvl.me.size()) l2r_send_to_parents(lvl, l2rndps);
+  }
+  Timer::stop(Timer::qltrunl2r); Timer::start(Timer::qltrunr2l);
+  root_compute(l2rndps, r2lndps);
+  for (size_t il = ns_->levels.size(); il > 0; --il) {
+    auto& lvl = ns_->levels[il-1];
+    if (lvl.me.size()) r2l_recv(lvl, r2lndps);
+    r2l_solve_qp(il-1, l2rndps, r2lndps);
+    if (lvl.kids.size()) r2l_send_to_kids(lvl, r2lndps);
+  }
+  Timer::stop(Timer::qltrunr2l);
+}
 
 namespace test {
 using namespace impl;
@@ -835,7 +1027,7 @@ private:
 Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
               const Int& ncells, const Int nrepeat,
               const bool write, const bool verbose) {
-  return TestQLT(p, tree, ncells, verbose).run(nrepeat, write);
+  return TestQLT(p, tree, ncells, verbose).run<TestQLT::QLTT>(nrepeat, write);
 }
 } // namespace test
 
@@ -1047,12 +1239,12 @@ Int run_unit_and_randomized_tests (const Parallel::Ptr& p, const Input& in) {
 } // namespace qlt
 } // namespace cedr
 
-#ifdef KOKKOS_HAVE_SERIAL
+#ifdef KOKKOS_ENABLE_SERIAL
 template class cedr::qlt::QLT<Kokkos::Serial>;
 #endif
-#ifdef KOKKOS_HAVE_OPENMP
+#ifdef KOKKOS_ENABLE_OPENMP
 template class cedr::qlt::QLT<Kokkos::OpenMP>;
 #endif
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
 template class cedr::qlt::QLT<Kokkos::Cuda>;
 #endif

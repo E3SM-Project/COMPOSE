@@ -11,6 +11,7 @@
 #include <list>
 
 #include "cedr_cdr.hpp"
+#include "cedr_util.hpp"
 
 namespace cedr {
 // QLT: Quasi-local tree-based non-iterative tracer density reconstructor for
@@ -32,17 +33,17 @@ struct NodeSets {
     // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
     Int id;
     // This node's parent, a comm partner, if such a partner is required.
-    const Node* parent;
+    Int parent;
     // This node's kids, comm partners, if such partners are required. Parent
     // and kid nodes are pruned relative to the full tree over the mesh to
     // contain just the nodes that matter to this rank.
     Int nkids;
-    const Node* kids[2];
+    Int kids[2];
     // Offset factor into bulk data. An offset is a unit; actual buffer sizes
     // are multiples of this unit.
     Int offset;
 
-    Node () : rank(-1), id(-1), parent(nullptr), nkids(0), offset(-1) {}
+    Node () : rank(-1), id(-1), parent(-1), nkids(0), offset(-1) {}
   };
 
   // A level in the level schedule that is constructed to orchestrate
@@ -66,10 +67,9 @@ struct NodeSets {
     };
     
     // The nodes in the level.
-    std::vector<Node*> nodes;
+    std::vector<Int> nodes;
     // MPI information for this level.
     std::vector<MPIMetaData> me, kids;
-    // Have to keep requests separate so we can call waitall if we want to.
     mutable std::vector<mpi::Request> me_send_req, me_recv_req, kids_req;
   };
   
@@ -81,16 +81,41 @@ struct NodeSets {
   
   // Allocate a node. The list node_mem_ is the mechanism for memory ownership;
   // node_mem_ isn't used for anything other than owning nodes.
-  Node* alloc () {
-    node_mem_.push_front(Node());
-    return &node_mem_.front();
+  Int alloc () {
+    const Int idx = node_mem_.size();
+    node_mem_.push_back(Node());
+    return idx;
+  }
+
+  Int nnode () const { return node_mem_.size(); }
+
+  Node* node_h (const Int& idx) {
+    cedr_assert(idx >= 0 && idx < static_cast<Int>(node_mem_.size()));
+    return &node_mem_[idx];
+  }
+  const Node* node_h (const Int& idx) const {
+    return const_cast<NodeSets*>(this)->node_h(idx);
   }
 
   void print(std::ostream& os) const;
   
 private:
-  std::list<Node> node_mem_;
+  std::vector<Node> node_mem_;
 };
+
+template <typename ExeSpace>
+struct NodeSetsDeviceData {
+  typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
+  typedef Kokkos::View<Int*, Device> IntList;
+  typedef Kokkos::View<NodeSets::Node*, Device> NodeList;
+
+  NodeList node;
+  // lvl(lvlptr(l):lvlptr(l+1)-1) is the list of node indices into node for
+  // level l.
+  IntList lvl, lvlptr;
+};
+
+typedef impl::NodeSetsDeviceData<Kokkos::DefaultHostExecutionSpace> NodeSetsHostData;
 } // namespace impl
 
 namespace tree {
@@ -102,8 +127,8 @@ struct Node {
   Long cellidx;       // If a leaf, the cell to which this node corresponds.
   Int nkids;          // 0 at leaf, 1 or 2 otherwise.
   Node::Ptr kids[2];
-  void* reserved;     // For internal use.
-  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(nullptr) {}
+  Int reserved;       // For internal use.
+  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1) {}
 };
 
 // Utility to make a tree over a 1D mesh. For testing, it can be useful to
@@ -150,21 +175,21 @@ public:
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) const override;
 
   // lclcellidx is gci2lci(cellidx).
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
               const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = std::numeric_limits<Real>::infinity()) override;
+              const Real Qm_prev = std::numeric_limits<Real>::infinity()) const override;
 
   void run() override;
 
   KOKKOS_INLINE_FUNCTION
-  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
+  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
 
 protected:
-  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
+  typedef Kokkos::View<Int*, Device> IntList;
   typedef cedr::impl::Const<IntList> ConstIntList;
   typedef cedr::impl::ConstUnmanaged<IntList> ConstUnmanagedIntList;
 
@@ -176,6 +201,7 @@ protected:
     std::vector<int> trcr2prob;
   };
 
+PROTECTED_CUDA:
   struct MetaData {
     enum : Int { nprobtypes = 4 };
 
@@ -200,12 +226,12 @@ protected:
       IntListT trcr2br2l;
     };
 
-    static int get_problem_type(const int& idx);
+    KOKKOS_INLINE_FUNCTION static int get_problem_type(const int& idx);
     
     // icpc doesn't let us use problem_type_ here, even though it's constexpr.
     static int get_problem_type_idx(const int& mask);
 
-    static int get_problem_type_l2r_bulk_size(const int& mask);
+    KOKKOS_INLINE_FUNCTION static int get_problem_type_l2r_bulk_size(const int& mask);
 
     static int get_problem_type_r2l_bulk_size(const int& mask);
 
@@ -240,13 +266,12 @@ protected:
     void init(const MetaDataBuilder& mdb);
 
   private:
-    static constexpr Int problem_type_[] = { CPT::st, CPT::cst, CPT::t, CPT::ct };
     Arrays<typename IntList::HostMirror> a_h_;
     Arrays<IntList> a_d_;
   };
 
   struct BulkData {
-    typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
+    typedef Kokkos::View<Real*, Device> RealList;
     typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
 
     UnmanagedRealList l2r_data, r2l_data;
@@ -262,23 +287,32 @@ protected:
 
   void init_ordinals();
 
-  KOKKOS_INLINE_FUNCTION
-  static void solve_node_problem(const Int problem_type,
-                                 const Real& rhom, const Real* pd, const Real& Qm,
-                                 const Real& rhom0, const Real* k0d, Real& Qm0,
-                                 const Real& rhom1, const Real* k1d, Real& Qm1);
-
+  /// Pointer data for initialization and host computation.
   Parallel::Ptr p_;
   // Tree and communication topology.
   std::shared_ptr<const impl::NodeSets> ns_;
+  // Data extracted from ns_ for use in run() on device.
+  std::shared_ptr<impl::NodeSetsDeviceData<ExeSpace> > nsdd_;
+  std::shared_ptr<impl::NodeSetsHostData> nshd_;
   // Globally unique cellidx -> rank-local index.
-  std::map<Int,Int> gci2lci_;
+  typedef std::map<Int,Int> Gci2LciMap;
+  std::shared_ptr<Gci2LciMap> gci2lci_;
   // Temporary to collect caller's tracer information prior to calling
   // end_tracer_declarations().
   typename MetaDataBuilder::Ptr mdb_;
+  /// View data for host and device computation.
   // Constructed in end_tracer_declarations().
   MetaData md_;
   BulkData bd_;
+
+PRIVATE_CUDA:
+  void l2r_recv(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_combine_kid_data(const Int& lvlidx, const Int& l2rndps) const;
+  void l2r_send_to_parents(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void root_compute(const Int& l2rndps, const Int& r2lndps) const;
+  void r2l_recv(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
+  void r2l_solve_qp(const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const;
+  void r2l_send_to_kids(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
 };
 
 namespace test {

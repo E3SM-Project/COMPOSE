@@ -16,6 +16,7 @@ public:
   // The subclass should call this, probably in its constructor.
   void init();
 
+  template <typename CDRT, typename ExeSpace = Kokkos::DefaultExecutionSpace>
   Int run(const Int nrepeat = 1, const bool write=false);
 
 private:
@@ -39,30 +40,49 @@ protected:
     {}
   };
 
-  struct Values {
-    Values (const Int ntracers, const Int ncells)
-      : ncells_(ncells), v_((4*ntracers + 1)*ncells)
-    {}
+  struct ValuesPartition {
     Int ncells () const { return ncells_; }
-    Real* rhom () { return v_.data(); }
-    Real* Qm_min  (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti    ); }
-    Real* Qm      (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 1); }
-    Real* Qm_max  (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 2); }
-    Real* Qm_prev (const Int& ti) { return v_.data() + ncells_*(1 + 4*ti + 3); }
-    const Real* rhom () const { return const_cast<Values*>(this)->rhom(); }
-    const Real* Qm_min  (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_min (ti); }
-    const Real* Qm      (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm     (ti); }
-    const Real* Qm_max  (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_max (ti); }
-    const Real* Qm_prev (const Int& ti) const
-    { return const_cast<Values*>(this)->Qm_prev(ti); }
+    KIF Real* rhom () const { return v_; }
+    KIF Real* Qm_min  (const Int& ti) const { return v_ + ncells_*(1 + 4*ti    ); }
+    KIF Real* Qm      (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 1); }
+    KIF Real* Qm_max  (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 2); }
+    KIF Real* Qm_prev (const Int& ti) const { return v_ + ncells_*(1 + 4*ti + 3); }
+  protected:
+    void init (const Int ncells, Real* v) {
+      ncells_ = ncells;
+      v_ = v;
+    }
   private:
     Int ncells_;
+    Real* v_;
+  };
+
+  struct Values : public ValuesPartition {
+    Values (const Int ntracers, const Int ncells)
+      : v_((4*ntracers + 1)*ncells)
+    { init(ncells, v_.data()); }
+    Real* data () { return v_.data(); }
+    size_t size () const { return v_.size(); }
+  private:
     std::vector<Real> v_;
   };
 
+PRIVATE_CUDA:
+  template <typename ExeSpace>
+  struct ValuesDevice : public ValuesPartition {
+    // This Values object is the source of data and gets updated by sync_host.
+    ValuesDevice (Values& v)
+      : rar_(v.data(), v.size())
+    { init(v.ncells(), rar_.device_ptr()); }
+    // Values -> device.
+    void sync_device () { rar_.sync_device(); }
+    // Update Values from device.
+    void sync_host () { rar_.sync_host(); }
+  private:
+    util::RawArrayRaft<Real, ExeSpace> rar_;
+  };
+
+protected:
   // For solution output, if requested.
   struct Writer {
     std::unique_ptr<FILE, cedr::util::FILECloser> fh;
@@ -124,5 +144,7 @@ private:
 
 } // namespace test
 } // namespace cedr
+
+#include "cedr_test_randomized_inl.hpp"
 
 #endif
