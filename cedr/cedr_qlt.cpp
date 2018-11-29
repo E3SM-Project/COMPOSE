@@ -532,30 +532,31 @@ void QLT<ES>::BulkData::init (const MetaData& md, const Int& nslots) {
 }
 
 template <typename ES>
-void init_device_data (const impl::NodeSets& ns, impl::NodeSetsDeviceData<ES>& d) {
+void init_device_data (const impl::NodeSets& ns, impl::NodeSetsHostData& h,
+                       impl::NodeSetsDeviceData<ES>& d) {
   typedef impl::NodeSetsDeviceData<ES> NSDD;
   d.node = typename NSDD::NodeList("NSDD::node", ns.nnode());
-  const auto node = Kokkos::create_mirror_view(d.node);
+  h.node = Kokkos::create_mirror_view(d.node);
   d.lvlptr = typename NSDD::IntList("NSDD::lvlptr", ns.levels.size() + 1);
-  const auto lvlptr = Kokkos::create_mirror_view(d.lvlptr);
+  h.lvlptr = Kokkos::create_mirror_view(d.lvlptr);
   Int nnode = 0;
   for (const auto& lvl : ns.levels)
     nnode += lvl.nodes.size();
   d.lvl = typename NSDD::IntList("NSDD::lvl", nnode);
-  const auto lvl = Kokkos::create_mirror_view(d.lvl);
-  lvlptr(0) = 0;
+  h.lvl = Kokkos::create_mirror_view(d.lvl);
+  h.lvlptr(0) = 0;
   for (size_t il = 0; il < ns.levels.size(); ++il) {
     const auto& level = ns.levels[il];
-    lvlptr(il+1) = lvlptr(il) + level.nodes.size();
-    for (Int os = lvlptr(il), i = 0; i < lvlptr(il+1) - os; ++i)
-      lvl(os+i) = level.nodes[i];
+    h.lvlptr(il+1) = h.lvlptr(il) + level.nodes.size();
+    for (Int os = h.lvlptr(il), i = 0; i < h.lvlptr(il+1) - os; ++i)
+      h.lvl(os+i) = level.nodes[i];
     nnode += level.nodes.size();
   }
   for (Int i = 0; i < ns.nnode(); ++i)
-    node(i) = *ns.node_h(i);
-  Kokkos::deep_copy(d.node, node);
-  Kokkos::deep_copy(d.lvl, lvl);
-  Kokkos::deep_copy(d.lvlptr, lvlptr);
+    h.node(i) = *ns.node_h(i);
+  Kokkos::deep_copy(d.node, h.node);
+  Kokkos::deep_copy(d.lvl, h.lvl);
+  Kokkos::deep_copy(d.lvlptr, h.lvlptr);
 }
 
 template <typename ES>
@@ -564,7 +565,9 @@ void QLT<ES>::init (const Parallel::Ptr& p, const Int& ncells,
   p_ = p;
   Timer::start(Timer::analyze);
   ns_ = impl::analyze(p, ncells, tree);
-  init_device_data(*ns_, nsdd_);
+  nshd_ = std::make_shared<impl::NodeSetsHostData>();
+  nsdd_ = std::make_shared<impl::NodeSetsDeviceData<ES> >();
+  init_device_data(*ns_, *nshd_, *nsdd_);
   init_ordinals();
   Timer::stop(Timer::analyze);
   mdb_ = std::make_shared<MetaDataBuilder>();
@@ -667,13 +670,13 @@ template <typename ES> void QLT<ES>
 
 template <typename ES> void QLT<ES>
 ::l2r_combine_kid_data (const Int& lvlidx, const Int& l2rndps) const {
-  const auto d = nsdd_;
+  const auto d = *nsdd_;
   const auto l2r_data = bd_.l2r_data;
   const auto a = md_.a_d;
   const Int ntracer = a.trcr2prob.size();
   const Int nfield = ntracer + 1;
-  const Int lvl_os = d.lvlptr(lvlidx);
-  const Int N = nfield*(d.lvlptr(lvlidx+1) - lvl_os);
+  const Int lvl_os = nshd_->lvlptr(lvlidx);
+  const Int N = nfield*(nshd_->lvlptr(lvlidx+1) - lvl_os);
   const auto combine_kid_data = KOKKOS_LAMBDA (const Int& k) {
     const Int il = lvl_os + k / nfield;
     const Int fi = k % nfield;
@@ -706,7 +709,7 @@ template <typename ES> void QLT<ES>
         me[3] =          k0[3] + k1[3] ;
     }
   };
-  Kokkos::parallel_for(N, combine_kid_data);
+  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), combine_kid_data);
 }
 
 template <typename ES> void QLT<ES>
@@ -723,12 +726,12 @@ template <typename ES> void QLT<ES>
   if (ns_->levels.empty() || ns_->levels.back().nodes.size() != 1 ||
       ns_->node_h(ns_->levels.back().nodes[0])->parent >= 0)
     return;
-  const auto d = nsdd_;
+  const auto d = *nsdd_;
   const auto l2r_data = bd_.l2r_data;
   const auto r2l_data = bd_.r2l_data;
   const auto a = md_.a_d;
-  const Int nlev = d.lvlptr.size() - 1;
-  const Int node_idx = d.lvl(d.lvlptr(nlev-1));
+  const Int nlev = nshd_->lvlptr.size() - 1;
+  const Int node_idx = nshd_->lvl(nshd_->lvlptr(nlev-1));
   const Int ntracer = a.trcr2prob.size();
   const auto compute = KOKKOS_LAMBDA (const Int& bi) {
     const auto& n = d.node(node_idx);
@@ -747,7 +750,7 @@ template <typename ES> void QLT<ES>
       r2l_data(n.offset*r2lndps + r2lbdi + 2) = l2r_data(n.offset*l2rndps + l2rbdi + 2);
     }
   };
-  Kokkos::parallel_for(ntracer, compute);
+  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, ntracer), compute);
 }
 
 template <typename ES> void QLT<ES>
@@ -765,13 +768,13 @@ template <typename ES> void QLT<ES>
 template <typename ES> void QLT<ES>
 ::r2l_solve_qp (const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const {
   Timer::start(Timer::snp);
-  const auto d = nsdd_;
+  const auto d = *nsdd_;
   const auto l2r_data = bd_.l2r_data;
   const auto r2l_data = bd_.r2l_data;
   const auto a = md_.a_d;
   const Int ntracer = a.trcr2prob.size();
-  const Int lvl_os = d.lvlptr(lvlidx);
-  const Int N = ntracer*(d.lvlptr(lvlidx+1) - lvl_os);
+  const Int lvl_os = nshd_->lvlptr(lvlidx);
+  const Int N = ntracer*(nshd_->lvlptr(lvlidx+1) - lvl_os);
   const auto solve_qp = KOKKOS_LAMBDA (const Int& k) {
     const Int il = lvl_os + k / ntracer;
     const Int bi = k % ntracer;
@@ -782,7 +785,7 @@ template <typename ES> void QLT<ES>
     const Int problem_type = a.trcr2prob(ti);
     const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
     const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
-    cedr_assert(n.nkids == 2);
+    cedr_kernel_assert(n.nkids == 2);
     if ( ! (problem_type & ProblemType::shapepreserve)) {
       // Pass q_{min,max} info along. l2r data are updated for use in
       // solve_node_problem. r2l data are updated for use in isend.
@@ -812,7 +815,7 @@ template <typename ES> void QLT<ES>
       &l2r_data(k1.offset*l2rndps + l2rbdi),
        r2l_data(k1.offset*r2lndps + r2lbdi));
   };
-  Kokkos::parallel_for(N, solve_qp);
+  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
   Timer::stop(Timer::snp);
 }
 

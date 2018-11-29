@@ -8,6 +8,7 @@
 // Clarify that a class member type is meant to be private but is
 // marked public for Cuda visibility.
 #define PRIVATE_CUDA public
+#define PROTECTED_CUDA public
 
 #if defined KOKKOS_COMPILER_GNU
 // See https://github.com/kokkos/kokkos-kernels/issues/129 

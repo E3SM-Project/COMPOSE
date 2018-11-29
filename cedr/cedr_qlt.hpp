@@ -114,6 +114,8 @@ struct NodeSetsDeviceData {
   // level l.
   IntList lvl, lvlptr;
 };
+
+typedef impl::NodeSetsDeviceData<Kokkos::DefaultHostExecutionSpace> NodeSetsHostData;
 } // namespace impl
 
 namespace tree {
@@ -199,6 +201,7 @@ protected:
     std::vector<int> trcr2prob;
   };
 
+PROTECTED_CUDA:
   struct MetaData {
     enum : Int { nprobtypes = 4 };
 
@@ -295,7 +298,8 @@ protected:
   // Tree and communication topology.
   std::shared_ptr<const impl::NodeSets> ns_;
   // Data extracted from ns_ for use in run() on device.
-  impl::NodeSetsDeviceData<ExeSpace> nsdd_;
+  std::shared_ptr<impl::NodeSetsDeviceData<ExeSpace> > nsdd_;
+  std::shared_ptr<impl::NodeSetsHostData> nshd_;
   // Globally unique cellidx -> rank-local index.
   typedef std::map<Int,Int> Gci2LciMap;
   std::shared_ptr<Gci2LciMap> gci2lci_;
@@ -307,7 +311,7 @@ protected:
   MetaData md_;
   BulkData bd_;
 
-private:
+PRIVATE_CUDA:
   void l2r_recv(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
   void l2r_combine_kid_data(const Int& lvlidx, const Int& l2rndps) const;
   void l2r_send_to_parents(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
