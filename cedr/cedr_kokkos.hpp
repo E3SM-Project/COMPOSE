@@ -73,6 +73,19 @@ typedef Kokkos::Device<Kokkos::DefaultExecutionSpace::execution_space,
                        Kokkos::DefaultExecutionSpace::memory_space> DefaultDeviceType;
 #endif
 
+template <typename ES> struct OnGpu {
+  enum : bool { value =
+#ifdef COMPOSE_MIMIC_GPU
+                true
+#else
+                false
+#endif
+  };
+};
+#ifdef KOKKOS_ENABLE_CUDA
+template <> struct OnGpu<Kokkos::Cuda> { enum : bool { value = true }; };
+#endif
+
 template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
 struct ExeSpaceUtils {
   using TeamPolicy = Kokkos::TeamPolicy<ExeSpace>;

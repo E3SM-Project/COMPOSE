@@ -138,13 +138,12 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
     Qm1 = Qm_kids[1];
   }
 }
-} // namespace impl
 
-template <typename ES> KOKKOS_INLINE_FUNCTION
-void QLT<ES>::solve_node_problem (const Int problem_type,
-                                  const Real& rhom, const Real* pd, const Real& Qm,
-                                  const Real& rhom0, const Real* k0d, Real& Qm0,
-                                  const Real& rhom1, const Real* k1d, Real& Qm1) {
+KOKKOS_INLINE_FUNCTION
+void solve_node_problem (const Int problem_type,
+                         const Real& rhom, const Real* pd, const Real& Qm,
+                         const Real& rhom0, const Real* k0d, Real& Qm0,
+                         const Real& rhom1, const Real* k1d, Real& Qm1) {
   if ( ! (problem_type & ProblemType::shapepreserve)) {      
     Real mpd[3], mk0d[3], mk1d[3];
     mpd[0]  = pd [0]*rhom ; mpd [1] = pd[1] ; mpd [2] = pd [2]*rhom ;
@@ -153,9 +152,9 @@ void QLT<ES>::solve_node_problem (const Int problem_type,
     impl::solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
     return;
   }
-  impl::solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
+  solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
 }
-
+} // namespace impl
 } // namespace qlt
 } // namespace cedr
 

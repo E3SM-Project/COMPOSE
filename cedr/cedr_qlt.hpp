@@ -287,12 +287,6 @@ protected:
 
   void init_ordinals();
 
-  KOKKOS_INLINE_FUNCTION
-  static void solve_node_problem(const Int problem_type,
-                                 const Real& rhom, const Real* pd, const Real& Qm,
-                                 const Real& rhom0, const Real* k0d, Real& Qm0,
-                                 const Real& rhom1, const Real* k1d, Real& Qm1);
-
   /// Pointer data for initialization and host computation.
   Parallel::Ptr p_;
   // Tree and communication topology.

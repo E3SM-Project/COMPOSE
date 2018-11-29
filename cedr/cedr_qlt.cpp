@@ -670,46 +670,86 @@ template <typename ES> void QLT<ES>
 
 template <typename ES> void QLT<ES>
 ::l2r_combine_kid_data (const Int& lvlidx, const Int& l2rndps) const {
-  const auto d = *nsdd_;
-  const auto l2r_data = bd_.l2r_data;
-  const auto a = md_.a_d;
-  const Int ntracer = a.trcr2prob.size();
-  const Int nfield = ntracer + 1;
-  const Int lvl_os = nshd_->lvlptr(lvlidx);
-  const Int N = nfield*(nshd_->lvlptr(lvlidx+1) - lvl_os);
-  const auto combine_kid_data = KOKKOS_LAMBDA (const Int& k) {
-    const Int il = lvl_os + k / nfield;
-    const Int fi = k % nfield;
-    const auto node_idx = d.lvl(il);
-    const auto& n = d.node(node_idx);
-    if ( ! n.nkids) return;
-    cedr_kernel_assert(n.nkids == 2);
-    if (fi == 0) {
+  if (cedr::impl::OnGpu<ES>::value) {
+    const auto d = *nsdd_;
+    const auto l2r_data = bd_.l2r_data;
+    const auto a = md_.a_d;
+    const Int ntracer = a.trcr2prob.size();
+    const Int nfield = ntracer + 1;
+    const Int lvl_os = nshd_->lvlptr(lvlidx);
+    const Int N = nfield*(nshd_->lvlptr(lvlidx+1) - lvl_os);
+    const auto combine_kid_data = KOKKOS_LAMBDA (const Int& k) {
+      //for (int k = 0; k < N; ++k) {
+      const Int il = lvl_os + k / nfield;
+      const Int fi = k % nfield;
+      const auto node_idx = d.lvl(il);
+      const auto& n = d.node(node_idx);
+      if ( ! n.nkids) return;
+      cedr_kernel_assert(n.nkids == 2);
+      if (fi == 0) {
+        // Total density.
+        l2r_data(n.offset*l2rndps) =
+          (l2r_data(d.node(n.kids[0]).offset*l2rndps) +
+           l2r_data(d.node(n.kids[1]).offset*l2rndps));
+      } else {
+        // Tracers. Order by bulk index for efficiency of memory access.
+        const Int bi = fi - 1; // bulk index
+        const Int ti = a.bidx2trcr(bi); // tracer (user) index
+        const Int problem_type = a.trcr2prob(ti);
+        const bool sum_only = problem_type & ProblemType::shapepreserve;
+        const Int bsz = MetaData::get_problem_type_l2r_bulk_size(problem_type);
+        const Int bdi = a.trcr2bl2r(ti);
+        Real* const me = &l2r_data(n.offset*l2rndps + bdi);
+        const auto& kid0 = d.node(n.kids[0]);
+        const auto& kid1 = d.node(n.kids[1]);
+        const Real* const k0 = &l2r_data(kid0.offset*l2rndps + bdi);
+        const Real* const k1 = &l2r_data(kid1.offset*l2rndps + bdi);
+        me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+        me[1] =            k0[1] + k1[1] ;
+        me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+        if (bsz == 4)
+          me[3] =          k0[3] + k1[3] ;
+      }
+    };
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), combine_kid_data);
+    Kokkos::fence();
+  } else {
+    const auto& lvl = ns_->levels[lvlidx];
+    const Int n_lvl_nodes = lvl.nodes.size();
+#ifdef KOKKOS_ENABLE_OPENMP
+#   pragma omp parallel for
+#endif
+    for (Int ni = 0; ni < n_lvl_nodes; ++ni) {
+      const auto lvlidx = lvl.nodes[ni];
+      const auto n = ns_->node_h(lvlidx);
+      if ( ! n->nkids) continue;
+      cedr_assert(n->nkids == 2);
       // Total density.
-      l2r_data(n.offset*l2rndps) =
-        (l2r_data(d.node(n.kids[0]).offset*l2rndps) +
-         l2r_data(d.node(n.kids[1]).offset*l2rndps));
-    } else {
-      // Tracers. Order by bulk index for efficiency of memory access.
-      const Int bi = fi - 1; // bulk index
-      const Int ti = a.bidx2trcr(bi); // tracer (user) index
-      const Int problem_type = a.trcr2prob(ti);
-      const bool sum_only = problem_type & ProblemType::shapepreserve;
-      const Int bsz = MetaData::get_problem_type_l2r_bulk_size(problem_type);
-      const Int bdi = a.trcr2bl2r(ti);
-      Real* const me = &l2r_data(n.offset*l2rndps + bdi);
-      const auto& kid0 = d.node(n.kids[0]);
-      const auto& kid1 = d.node(n.kids[1]);
-      const Real* const k0 = &l2r_data(kid0.offset*l2rndps + bdi);
-      const Real* const k1 = &l2r_data(kid1.offset*l2rndps + bdi);
-      me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
-      me[1] =            k0[1] + k1[1] ;
-      me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
-      if (bsz == 4)
-        me[3] =          k0[3] + k1[3] ;
+      bd_.l2r_data(n->offset*l2rndps) =
+        (bd_.l2r_data(ns_->node_h(n->kids[0])->offset*l2rndps) +
+         bd_.l2r_data(ns_->node_h(n->kids[1])->offset*l2rndps));
+      // Tracers.
+      for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
+        const Int problem_type = md_.get_problem_type(pti);
+        const bool sum_only = problem_type & ProblemType::shapepreserve;
+        const Int bsz = md_.get_problem_type_l2r_bulk_size(problem_type);
+        const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
+        for (Int bi = bis; bi < bie; ++bi) {
+          const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
+          Real* const me = &bd_.l2r_data(n->offset*l2rndps + bdi);
+          const auto kid0 = ns_->node_h(n->kids[0]);
+          const auto kid1 = ns_->node_h(n->kids[1]);
+          const Real* const k0 = &bd_.l2r_data(kid0->offset*l2rndps + bdi);
+          const Real* const k1 = &bd_.l2r_data(kid1->offset*l2rndps + bdi);
+          me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+          me[1] =            k0[1] + k1[1] ;
+          me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+          if (bsz == 4)
+            me[3] =          k0[3] + k1[3] ;
+        }
+      }
     }
-  };
-  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), combine_kid_data);
+  }
 }
 
 template <typename ES> void QLT<ES>
@@ -751,6 +791,7 @@ template <typename ES> void QLT<ES>
     }
   };
   Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, ntracer), compute);
+  Kokkos::fence();
 }
 
 template <typename ES> void QLT<ES>
@@ -765,57 +806,113 @@ template <typename ES> void QLT<ES>
   Timer::stop(Timer::waitall);
 }
 
+template <typename Data> KOKKOS_INLINE_FUNCTION
+void r2l_solve_qp_set_q (
+  const Data& l2r_data, const Data& r2l_data,
+  const Int& os, const Int& l2rndps, const Int& r2lndps,
+  const Int& l2rbdi, const Int& r2lbdi, const Real& q_min, const Real& q_max)
+{
+  l2r_data(os*l2rndps + l2rbdi + 0) = q_min;
+  l2r_data(os*l2rndps + l2rbdi + 2) = q_max;
+  r2l_data(os*r2lndps + r2lbdi + 1) = q_min;
+  r2l_data(os*r2lndps + r2lbdi + 2) = q_max; 
+}
+
+template <typename Data> KOKKOS_INLINE_FUNCTION
+void r2l_solve_qp_solve_node_problem (
+  const Data& l2r_data, const Data& r2l_data, const Int& problem_type,
+  const impl::NodeSets::Node& n,
+  const impl::NodeSets::Node& k0, const impl::NodeSets::Node& k1,
+  const Int& l2rndps, const Int& r2lndps,
+  const Int& l2rbdi, const Int& r2lbdi)
+{
+  impl::solve_node_problem(
+    problem_type,
+     l2r_data( n.offset*l2rndps),
+    &l2r_data( n.offset*l2rndps + l2rbdi),
+     r2l_data( n.offset*r2lndps + r2lbdi),
+     l2r_data(k0.offset*l2rndps),
+    &l2r_data(k0.offset*l2rndps + l2rbdi),
+     r2l_data(k0.offset*r2lndps + r2lbdi),
+     l2r_data(k1.offset*l2rndps),
+    &l2r_data(k1.offset*l2rndps + l2rbdi),
+     r2l_data(k1.offset*r2lndps + r2lbdi));
+}
+
 template <typename ES> void QLT<ES>
 ::r2l_solve_qp (const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const {
   Timer::start(Timer::snp);
-  const auto d = *nsdd_;
-  const auto l2r_data = bd_.l2r_data;
-  const auto r2l_data = bd_.r2l_data;
-  const auto a = md_.a_d;
-  const Int ntracer = a.trcr2prob.size();
-  const Int lvl_os = nshd_->lvlptr(lvlidx);
-  const Int N = ntracer*(nshd_->lvlptr(lvlidx+1) - lvl_os);
-  const auto solve_qp = KOKKOS_LAMBDA (const Int& k) {
-    const Int il = lvl_os + k / ntracer;
-    const Int bi = k % ntracer;
-    const auto node_idx = d.lvl(il);
-    const auto& n = d.node(node_idx);
-    if ( ! n.nkids) return;
-    const Int ti = a.bidx2trcr(bi);
-    const Int problem_type = a.trcr2prob(ti);
-    const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
-    const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
-    cedr_kernel_assert(n.nkids == 2);
-    if ( ! (problem_type & ProblemType::shapepreserve)) {
-      // Pass q_{min,max} info along. l2r data are updated for use in
-      // solve_node_problem. r2l data are updated for use in isend.
-      const Real q_min = r2l_data(n.offset*r2lndps + r2lbdi + 1);
-      const Real q_max = r2l_data(n.offset*r2lndps + r2lbdi + 2);
-      l2r_data(n.offset*l2rndps + l2rbdi + 0) = q_min;
-      l2r_data(n.offset*l2rndps + l2rbdi + 2) = q_max;
-      for (Int k = 0; k < 2; ++k) {
-        const auto os = d.node(n.kids[k]).offset;
-        l2r_data(os*l2rndps + l2rbdi + 0) = q_min;
-        l2r_data(os*l2rndps + l2rbdi + 2) = q_max;
-        r2l_data(os*r2lndps + r2lbdi + 1) = q_min;
-        r2l_data(os*r2lndps + r2lbdi + 2) = q_max;
+  if (cedr::impl::OnGpu<ES>::value) {
+    const auto d = *nsdd_;
+    const auto l2r_data = bd_.l2r_data;
+    const auto r2l_data = bd_.r2l_data;
+    const auto a = md_.a_d;
+    const Int ntracer = a.trcr2prob.size();
+    const Int lvl_os = nshd_->lvlptr(lvlidx);
+    const Int N = ntracer*(nshd_->lvlptr(lvlidx+1) - lvl_os);
+    const auto solve_qp = KOKKOS_LAMBDA (const Int& k) {
+      const Int il = lvl_os + k / ntracer;
+      const Int bi = k % ntracer;
+      const auto node_idx = d.lvl(il);
+      const auto& n = d.node(node_idx);
+      if ( ! n.nkids) return;
+      const Int ti = a.bidx2trcr(bi);
+      const Int problem_type = a.trcr2prob(ti);
+      const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
+      const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
+      cedr_kernel_assert(n.nkids == 2);
+      if ( ! (problem_type & ProblemType::shapepreserve)) {
+        // Pass q_{min,max} info along. l2r data are updated for use
+        // in solve_node_problem. r2l data are updated for use in
+        // isend.
+        const Real q_min = r2l_data(n.offset*r2lndps + r2lbdi + 1);
+        const Real q_max = r2l_data(n.offset*r2lndps + r2lbdi + 2);
+        l2r_data(n.offset*l2rndps + l2rbdi + 0) = q_min;
+        l2r_data(n.offset*l2rndps + l2rbdi + 2) = q_max;
+        for (Int k = 0; k < 2; ++k)
+          r2l_solve_qp_set_q(l2r_data, r2l_data, d.node(n.kids[k]).offset,
+                             l2rndps, r2lndps, l2rbdi, r2lbdi, q_min, q_max);
+      }
+      r2l_solve_qp_solve_node_problem(
+        l2r_data, r2l_data, problem_type, n, d.node(n.kids[0]), d.node(n.kids[1]),
+        l2rndps, r2lndps, l2rbdi, r2lbdi);
+    };
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
+    Kokkos::fence();
+  } else {
+    const auto& lvl = ns_->levels[lvlidx];
+    const Int n_lvl_nodes = lvl.nodes.size();
+#ifdef KOKKOS_ENABLE_OPENMP
+#   pragma omp parallel for
+#endif
+    for (Int ni = 0; ni < n_lvl_nodes; ++ni) {
+      const auto lvlidx = lvl.nodes[ni];
+      const auto n = ns_->node_h(lvlidx);
+      if ( ! n->nkids) continue;
+      for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
+        const Int problem_type = md_.get_problem_type(pti);
+        const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
+        for (Int bi = bis; bi < bie; ++bi) {
+          const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
+          const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
+          cedr_assert(n->nkids == 2);
+          if ( ! (problem_type & ProblemType::shapepreserve)) {
+            const Real q_min = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1);
+            const Real q_max = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2);
+            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;
+            bd_.l2r_data(n->offset*l2rndps + l2rbdi + 2) = q_max;
+            for (Int k = 0; k < 2; ++k)
+              r2l_solve_qp_set_q(bd_.l2r_data, bd_.r2l_data,
+                                 ns_->node_h(n->kids[k])->offset,
+                                 l2rndps, r2lndps, l2rbdi, r2lbdi, q_min, q_max);
+          }
+          r2l_solve_qp_solve_node_problem(
+            bd_.l2r_data, bd_.r2l_data, problem_type, *n, *ns_->node_h(n->kids[0]),
+            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi);
+        }
       }
     }
-    const auto& k0 = d.node(n.kids[0]);
-    const auto& k1 = d.node(n.kids[1]);
-    solve_node_problem(
-      problem_type,
-       l2r_data( n.offset*l2rndps),
-      &l2r_data( n.offset*l2rndps + l2rbdi),
-       r2l_data( n.offset*r2lndps + r2lbdi),
-       l2r_data(k0.offset*l2rndps),
-      &l2r_data(k0.offset*l2rndps + l2rbdi),
-       r2l_data(k0.offset*r2lndps + r2lbdi),
-       l2r_data(k1.offset*l2rndps),
-      &l2r_data(k1.offset*l2rndps + l2rbdi),
-       r2l_data(k1.offset*r2lndps + r2lbdi));
-  };
-  Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
+  }
   Timer::stop(Timer::snp);
 }
 
