@@ -18,7 +18,7 @@ public:
   enum Op { tree, analyze, qltrun, qltrunl2r, qltrunr2l, snp, waitall,
             total, NTIMERS };
   static inline void init () {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     for (int i = 0; i < NTIMERS; ++i) {
       et_[i] = 0;
       cnt_[i] = 0;
@@ -26,19 +26,19 @@ public:
 #endif
   }
   static inline void reset (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     et_[op] = 0;
     cnt_[op] = 0;
 #endif
   }
   static inline void start (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     gettimeofday(&t_start_[op], 0);
     ++cnt_[op];
 #endif
   }
   static inline void stop (const Op op) {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     timeval t2;
     gettimeofday(&t2, 0);
     const timeval& t1 = t_start_[op];
@@ -51,7 +51,7 @@ public:
            #op, et_[op], 100*et_[op]/tot, cnt_[op], et_[op]/cnt_[op]);  \
   } while (0)
   static void print () {
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
     const double tot = et_[total];
     tpr(tree); tpr(analyze);
     tpr(qltrun); tpr(qltrunl2r); tpr(qltrunr2l); tpr(snp); tpr(waitall);
@@ -60,13 +60,13 @@ public:
   }
 #undef tpr
 private:
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
   static timeval t_start_[NTIMERS];
   static double et_[NTIMERS];
   static int cnt_[NTIMERS];
 #endif
 };
-#ifdef QLT_TIME
+#ifdef COMPOSE_QLT_TIME
 timeval Timer::t_start_[Timer::NTIMERS];
 double Timer::et_[Timer::NTIMERS];
 int Timer::cnt_[Timer::NTIMERS];

@@ -14,6 +14,7 @@ endfunction ()
 
 set (COMPOSE_DEBUG_MPI FALSE CACHE LOGICAL "If true, insert debugging code into MPI wrappers.")
 set (COMPOSE_MIMIC_GPU FALSE CACHE LOGICAL "If true, use non-optimal OpenMP threading to debug GPU-like parallelism.")
+set (COMPOSE_QLT_TIME  FALSE CACHE LOGICAL "If true, time QLT operations and display timers at the end.")
 
 if (Kokkos_DIR)
   include (${Kokkos_DIR}/kokkos_generated_settings.cmake)
