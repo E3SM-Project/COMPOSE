@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #ifndef INCLUDE_CEDR_CAAS_HPP
 #define INCLUDE_CEDR_CAAS_HPP
 
@@ -42,17 +45,17 @@ public:
 
   // lclcellidx is trivial; it is the user's index for the cell.
   KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) override;
+  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) const override;
 
   KOKKOS_INLINE_FUNCTION
   void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
               const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = std::numeric_limits<Real>::infinity()) override;
+              const Real Qm_prev = std::numeric_limits<Real>::infinity()) const override;
 
   void run() override;
 
   KOKKOS_INLINE_FUNCTION
-  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) override;
+  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
 
 protected:
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
@@ -73,10 +76,13 @@ protected:
   std::shared_ptr<std::vector<Decl> > tracer_decls_;
   bool need_conserve_;
   IntList probs_, t2r_;
+  typename IntList::HostMirror probs_h_;
   RealList d_, send_, recv_;
 
-  void reduce_locally();
   void reduce_globally();
+
+PRIVATE_CUDA:
+  void reduce_locally();
   void finish_locally();
 };
 

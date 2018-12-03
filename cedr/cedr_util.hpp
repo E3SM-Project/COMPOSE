@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #ifndef INCLUDE_CEDR_UTIL_HPP
 #define INCLUDE_CEDR_UTIL_HPP
 
@@ -83,6 +86,37 @@ inline Real reldif (const Real a, const Real b)
 Real reldif(const Real* a, const Real* b, const Int n);
 
 struct FILECloser { void operator() (FILE* fh) { fclose(fh); } };
+
+template <typename T, typename ExeSpace>
+struct RawArrayRaft {
+  typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
+  typedef Kokkos::View<T*, Device> List;
+  
+  RawArrayRaft (T* a, const Int n)
+    : a_(a), n_(n)
+  {
+    a_d_ = List("RawArrayRaft::a_d_", n_);
+    a_h_ = typename List::HostMirror(a_, n_);
+  }
+
+  const List& sync_device () {
+    Kokkos::deep_copy(a_d_, a_h_);
+    return a_d_;
+  }
+
+  T* sync_host () {
+    Kokkos::deep_copy(a_h_, a_d_);
+    return a_;
+  }
+
+  T* device_ptr () { return a_d_.data(); }
+
+private:
+  T* a_;
+  Int n_;
+  List a_d_;
+  typename List::HostMirror a_h_;
+};
 
 }
 }

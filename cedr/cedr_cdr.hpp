@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #ifndef INCLUDE_CEDR_CDR_HPP
 #define INCLUDE_CEDR_CDR_HPP
 
@@ -38,11 +41,13 @@ struct CDR {
   // the index into the local cell.
   //
   //   set_rhom must be called before set_Qm.
+  KOKKOS_FUNCTION
   virtual void set_rhom(
     const Int& lclcellidx, const Int& rhomidx,
     // Current total mass in this cell.
-    const Real& rhom) = 0;
+    const Real& rhom) const = 0;
 
+  KOKKOS_FUNCTION
   virtual void set_Qm(
     const Int& lclcellidx, const Int& tracer_idx,
     // Current tracer mass in this cell.
@@ -51,14 +56,15 @@ struct CDR {
     const Real& Qm_min, const Real& Qm_max,
     // If mass conservation is requested, provide the previous Qm, which will be
     // summed to give the desired global mass.
-    const Real Qm_prev = std::numeric_limits<Real>::infinity()) = 0;
+    const Real Qm_prev = std::numeric_limits<Real>::infinity()) const = 0;
 
   // Run the QLT algorithm with the values set by set_{rho,Q}. It is an error to
   // call this function from a parallel region.
   virtual void run() = 0;
 
   // Get a cell's tracer mass Qm after the QLT algorithm has run.
-  virtual Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) = 0;
+  KOKKOS_FUNCTION
+  virtual Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const = 0;
 };
 } // namespace cedr
 
