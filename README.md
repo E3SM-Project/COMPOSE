@@ -8,13 +8,11 @@ separately, property preservation:
 
 # Building and installing
 
-First, install Kokkos:
+First, install [Kokkos](https://github.com/kokkos/kokkos).
+For example, in a typical environment using OpenMP, run:
 ```
-    https://github.com/kokkos/kokkos
-```
-For example, in a typical environment using OpenMP, a simple build line is:
-```
-    ./kokkos/generate_makefile.bash --with-serial --with-openmp --prefix=/path/to/my/libs --compiler=g++
+    git clone https://github.com/kokkos/kokkos.git
+    ./kokkos/generate_makefile.bash --with-serial --with-openmp --prefix=/path/to/my/kokkos/install --compiler=g++
     make -j8 install
 ```
 
