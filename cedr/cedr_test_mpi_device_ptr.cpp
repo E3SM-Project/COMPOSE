@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #include "cedr_mpi.hpp"
 
 // Seg fault if MPI can't handle device pointers. Thus, we'll isolate

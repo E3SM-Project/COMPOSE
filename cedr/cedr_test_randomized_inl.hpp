@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #ifndef INCLUDE_CEDR_TEST_RANDOMIZED_INL_HPP
 #define INCLUDE_CEDR_TEST_RANDOMIZED_INL_HPP
 

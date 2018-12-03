@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 #include "cedr_test.hpp"
 #include "cedr_qlt.hpp"
 #include "cedr_caas.hpp"
