@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 // ko=/home/ambradl/lib/kokkos/cpu; mycpp -I$ko/include -L$ko/lib -fopenmp unit_test.cpp -lkokkos -ldl -Wall -pedantic -DSIQK_TIME
 // ./a.out -m | grep "mat=1" > foo.m
 // >> msik('draw_unit_test0', 'foo');

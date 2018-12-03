@@ -1,3 +1,6 @@
+// COMPOSE version 1.0: Copyright 2018 NTESS. This software is released under
+// the BSD license; see LICENSE in the top-level directory.
+
 # bash make_qltcpp.sh
 # mpicxx -Wall -pedantic -fopenmp -std=c++11 -I/home/ambradl/lib/kokkos/cpu/include qlt.cpp -L/home/ambradl/lib/kokkos/cpu/lib -lkokkos -ldl
 # OMP_PROC_BIND=false OMP_NUM_THREADS=2 mpirun -np 14 ./a.out -t
