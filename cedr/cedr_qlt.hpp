@@ -239,26 +239,21 @@ PROTECTED_CUDA:
     static int get_problem_type_r2l_bulk_size(const int& mask);
 
     struct CPT {
-      // We could make the l2r buffer smaller by one entry, Qm. However, the
-      // l2r comm is more efficient if it's done with one buffer. Similarly,
-      // we separate the r2l data into a separate buffer for packing and MPI
-      // efficiency.
-      //   There are 7 possible problems.
       //   The only problem not supported is conservation alone. It makes very
       // little sense to use QLT for conservation alone.
-      //   The remaining 6 fall into 4 categories of details. These 4 categories
-      // are tracked by QLT; which of the original 6 problems being solved is
-      // not important.
+      //   The remaining problems fall into 4 categories of details. These 4
+      // categories are tracked by QLT; which of the original 6 problems being
+      // solved is not important.
       enum {
-        // l2r: rhom, (Qm_min, Qm, Qm_max)*; l2r, r2l: Qm*
+        // l2r: rhom, (Qm_min, Qm, Qm_max)*; r2l: Qm*
         s  = ProblemType::shapepreserve,
         st = ProblemType::shapepreserve | ProblemType::consistent,
-        // l2r: rhom, (Qm_min, Qm, Qm_max, Qm_prev)*; l2r, r2l: Qm*
+        // l2r: rhom, (Qm_min, Qm, Qm_max, Qm_prev)*; r2l: Qm*
         cs  = ProblemType::conserve | s,
         cst = ProblemType::conserve | st,
-        // l2r: rhom, (q_min, Qm, q_max)*; l2r, r2l: Qm*
+        // l2r: rhom, (q_min, Qm, q_max)*; r2l: (Qm, q_min, q_max)*
         t = ProblemType::consistent,
-        // l2r: rhom, (q_min, Qm, q_max, Qm_prev)*; l2r, r2l: Qm*
+        // l2r: rhom, (q_min, Qm, q_max, Qm_prev)*; r2l: (Qm, q_min, q_max)*
         ct = ProblemType::conserve | t
       };
     };
