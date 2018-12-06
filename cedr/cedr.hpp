@@ -15,8 +15,8 @@ typedef double Real;
 
 // CDRs in general implement
 // * tracer mass, Qm, conservation;
-// * mixing ratio, q, shape preservation, either local bound preservation or
-//   dynamic range preservation; and
+// * mixing ratio, q, shape preservation: any of local bound preservation,
+//   dynamic range preservation, or simply non-negativity; and
 // * tracer consistency, which follows from dynamic range preservation or
 //   stronger (including local bound preservation) with rhom coming from the
 //   dynamics.
@@ -27,7 +27,10 @@ typedef double Real;
 //   If consistent but !shapepreserve, the the CDR solves the dynamic range
 // preservation problem rather than the local bound preservation problem.
 struct ProblemType {
-  enum : Int { conserve = 1, shapepreserve = 1 << 1, consistent = 1 << 2 };
+  enum : Int {
+    conserve = 1, shapepreserve = 1 << 1, consistent = 1 << 2,
+    nonneg = 1 << 3
+  };
 };
 }
 
