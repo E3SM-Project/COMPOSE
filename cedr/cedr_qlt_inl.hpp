@@ -108,7 +108,7 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
       // If the discrepancy is numerical noise, don't act on it.
       const Real tol = 10*std::numeric_limits<Real>::epsilon();
       const Real discrepancy = lo ? Qm_min - Qm : Qm - Qm_max;
-      if (discrepancy > tol*Qm_max) {
+      if (discrepancy > tol*(Qm_max - Qm_min)) {
         const Real rhom_kids[] = {rhom0, rhom1};
         r2l_nl_adjust_bounds(lo ? Qm_min_kids : Qm_max_kids,
                              rhom_kids,
@@ -152,7 +152,7 @@ void solve_node_problem (const Int problem_type,
     mpd[0]  = pd [0]*rhom ; mpd [1] = pd[1] ; mpd [2] = pd [2]*rhom ;
     mk0d[0] = k0d[0]*rhom0; mk0d[1] = k0d[1]; mk0d[2] = k0d[2]*rhom0;
     mk1d[0] = k1d[0]*rhom1; mk1d[1] = k1d[1]; mk1d[2] = k1d[2]*rhom1;
-    impl::solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
+    solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
     return;
   }
   solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);

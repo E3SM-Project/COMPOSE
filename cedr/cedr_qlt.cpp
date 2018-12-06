@@ -447,7 +447,6 @@ int QLT<ES>::MetaData::get_problem_type (const int& idx) {
   return problem_type[idx];
 }
     
-// icpc doesn't let us use problem_type_ here, even though it's constexpr.
 template <typename ES>
 int QLT<ES>::MetaData::get_problem_type_idx (const int& mask) {
   switch (mask) {
@@ -682,7 +681,6 @@ template <typename ES> void QLT<ES>
     const Int lvl_os = nshd_->lvlptr(lvlidx);
     const Int N = nfield*(nshd_->lvlptr(lvlidx+1) - lvl_os);
     const auto combine_kid_data = KOKKOS_LAMBDA (const Int& k) {
-      //for (int k = 0; k < N; ++k) {
       const Int il = lvl_os + k / nfield;
       const Int fi = k % nfield;
       const auto node_idx = d.lvl(il);

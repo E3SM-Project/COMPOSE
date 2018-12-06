@@ -28,11 +28,13 @@ void TestRandomized::init_tracers_vector () {
     PT::conserve | PT::shapepreserve | PT::consistent,
     PT::shapepreserve, // Test a noncanonical problem type.
     PT::conserve | PT::consistent,
-    PT::consistent
+    PT::consistent,
+    PT::nonnegative | PT::shapepreserve,
+    PT::conserve | PT::nonnegative | PT::shapepreserve
   };
   Int tracer_idx = 0;
   for (Int perturb = 0; perturb < 6; ++perturb)
-    for (Int ti = 0; ti < 4; ++ti) {
+    for (Int ti = 0; ti < 4 /*sizeof(pts)/sizeof(*pts)*/; ++ti) {
       Tracer t;
       t.problem_type = pts[ti];
       const bool shapepreserve = t.problem_type & PT::shapepreserve;
@@ -60,14 +62,13 @@ void TestRandomized::generate_Q (const Tracer& t, Values& v) {
     * Qm_max = v.Qm_max(t.idx), * Qm_prev = v.Qm_prev(t.idx);
   const Int n = v.ncells();
   for (Int i = 0; i < n; ++i) {
+    // The typical use case has 0 <= q_min <= q, but test with general sign.
     const Real
-      q_min = 0.1 + 0.8*urand(),
-      q_max = std::min<Real>(1, q_min + (0.9 - q_min)*urand()),
+      q_min = -0.75 + urand(),
+      q_max = q_min + urand(),
       q = q_min + (q_max - q_min)*urand();
     // Check correctness up to FP.
-    cedr_assert(q_min >= 0 &&
-                q_max <= 1 + 10*std::numeric_limits<Real>::epsilon() &&
-                q_min <= q && q <= q_max);
+    cedr_assert(q_min <= q && q <= q_max);
     Qm_min[i] = q_min*rhom[i];
     Qm_max[i] = q_max*rhom[i];
     // Protect against FP error.
@@ -278,7 +279,7 @@ void TestRandomized::write_post (const Tracer& t, Values& v) {
 Int TestRandomized
 ::check (const std::string& cdr_name, const mpi::Parallel& p,
          const std::vector<Tracer>& ts, const Values& v) {
-  static const bool details = false;
+  static const bool details = true;
   static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
   Int nerr = 0;
   std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
@@ -336,8 +337,9 @@ Int TestRandomized
         * Qm_max = v.Qm_max(t.idx);
       const Real q_min = q_min_gbl[ti], q_max = q_max_gbl[ti];
       for (Int i = 0; i < n; ++i) {
-        if (Qm[i] < q_min*rhom[i]*(1 - ulp3) ||
-            Qm[i] > q_max*rhom[i]*(1 + ulp3)) {
+        const Real delta = (q_max - q_min)*ulp3;
+        if (Qm[i] < q_min*rhom[i] - delta ||
+            Qm[i] > q_max*rhom[i] + delta) {
           if (details)
             pr("check q (safety) " << t.str() << ": " << q_min*rhom[i] << " "
                << Qm_min[i] << " " << Qm[i] << " " << Qm_max[i] << " "

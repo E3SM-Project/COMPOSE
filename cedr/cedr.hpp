@@ -29,7 +29,7 @@ typedef double Real;
 struct ProblemType {
   enum : Int {
     conserve = 1, shapepreserve = 1 << 1, consistent = 1 << 2,
-    nonneg = 1 << 3
+    nonnegative = 1 << 3
   };
 };
 }
