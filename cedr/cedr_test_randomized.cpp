@@ -12,6 +12,7 @@ std::string TestRandomized::Tracer::str () const {
   if (problem_type & PT::conserve) ss << " c";
   if (problem_type & PT::shapepreserve) ss << " s";
   if (problem_type & PT::consistent) ss << " t";
+  if (problem_type & PT::nonnegative) ss << " nn";
   ss << " pt " << perturbation_type << " ssh " << safe_should_hold
      << " lsh " << local_should_hold << ")";
   return ss.str();
@@ -35,6 +36,7 @@ void TestRandomized::init_tracers_vector () {
   Int tracer_idx = 0;
   for (Int perturb = 0; perturb < 6; ++perturb)
     for (Int ti = 0; ti < sizeof(pts)/sizeof(*pts); ++ti) {
+      if (ti >= 4 && perturb > 0) continue;
       Tracer t;
       t.problem_type = pts[ti];
       const bool shapepreserve = t.problem_type & PT::shapepreserve;
@@ -61,18 +63,25 @@ void TestRandomized::generate_Q (const Tracer& t, Values& v) {
   Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
     * Qm_max = v.Qm_max(t.idx), * Qm_prev = v.Qm_prev(t.idx);
   const Int n = v.ncells();
+  const bool nonneg_only = t.problem_type & ProblemType::nonnegative;
   for (Int i = 0; i < n; ++i) {
-    // The typical use case has 0 <= q_min <= q, but test with general sign.
-    const Real
-      q_min = -0.75 + urand(),
-      q_max = q_min + urand(),
-      q = q_min + (q_max - q_min)*urand();
-    // Check correctness up to FP.
-    cedr_assert(q_min <= q && q <= q_max);
-    Qm_min[i] = q_min*rhom[i];
-    Qm_max[i] = q_max*rhom[i];
-    // Protect against FP error.
-    Qm[i] = std::max<Real>(Qm_min[i], std::min(Qm_max[i], q*rhom[i]));
+    if (nonneg_only) {
+      Qm_min[i] = Qm_max[i] = -1; // unused
+      // Make sure the generated Qm is globally positive.
+      Qm[i] = ((i % 2 == 0) ? 0.75 : -0.75) + urand();
+    } else {
+      // The typical use case has 0 <= q_min <= q, but test with general sign.
+      const Real
+        q_min = -0.75 + urand(),
+        q_max = q_min + urand(),
+        q = q_min + (q_max - q_min)*urand();
+      // Check correctness up to FP.
+      cedr_assert(q_min <= q && q <= q_max);
+      Qm_min[i] = q_min*rhom[i];
+      Qm_max[i] = q_max*rhom[i];
+      // Protect against FP error.
+      Qm[i] = std::max<Real>(Qm_min[i], std::min(Qm_max[i], q*rhom[i]));
+    }
     // Set previous Qm to the current unperturbed value.
     Qm_prev[i] = Qm[i];
   }
@@ -279,7 +288,7 @@ void TestRandomized::write_post (const Tracer& t, Values& v) {
 Int TestRandomized
 ::check (const std::string& cdr_name, const mpi::Parallel& p,
          const std::vector<Tracer>& ts, const Values& v) {
-  static const bool details = true;
+  static const bool details = false;
   static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
   Int nerr = 0;
   std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
@@ -289,14 +298,17 @@ Int TestRandomized
 
     cedr_assert(t.safe_should_hold);
     const bool safe_only = ! t.local_should_hold;
+    const bool nonneg_only = t.problem_type & ProblemType::nonnegative;
     const Int n = v.ncells();
     const Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
       * Qm_max = v.Qm_max(t.idx), * Qm_prev = v.Qm_prev(t.idx);
 
-    q_min_lcl[ti] = 1;
-    q_max_lcl[ti] = 0;
+    q_min_lcl[ti] =  1e3;
+    q_max_lcl[ti] = -1e3;
     for (Int i = 0; i < n; ++i) {
-      const bool lv = (Qm[i] < Qm_min[i] || Qm[i] > Qm_max[i]);
+      const bool lv = (nonneg_only ?
+                       Qm[i] < 0 :
+                       Qm[i] < Qm_min[i] || Qm[i] > Qm_max[i]);
       if (lv) local_violated[ti] = 1;
       if ( ! safe_only && lv) {
         // If this fails at ~ machine eps, check r2l_nl_adjust_bounds code in
@@ -331,15 +343,19 @@ Int TestRandomized
     // local problem).
     const auto& t = ts[ti];
     const bool safe_only = ! t.local_should_hold;
+    const bool nonneg_only = t.problem_type & ProblemType::nonnegative;
     if (safe_only) {
       const Int n = v.ncells();
       const Real* rhom = v.rhom(), * Qm_min = v.Qm_min(t.idx), * Qm = v.Qm(t.idx),
         * Qm_max = v.Qm_max(t.idx);
-      const Real q_min = q_min_gbl[ti], q_max = q_max_gbl[ti];
+      const Real q_min = nonneg_only ? 0 : q_min_gbl[ti], q_max = q_max_gbl[ti];
       for (Int i = 0; i < n; ++i) {
         const Real delta = (q_max - q_min)*ulp3;
-        if (Qm[i] < q_min*rhom[i] - delta ||
-            Qm[i] > q_max*rhom[i] + delta) {
+        const bool lv = (nonneg_only ?
+                         Qm[i] < -ulp3 :
+                         (Qm[i] < q_min*rhom[i] - delta ||
+                          Qm[i] > q_max*rhom[i] + delta));
+        if (lv) {
           if (details)
             pr("check q (safety) " << t.str() << ": " << q_min*rhom[i] << " "
                << Qm_min[i] << " " << Qm[i] << " " << Qm_max[i] << " "
@@ -349,7 +365,7 @@ Int TestRandomized
           t_ok[ti] = false;
           ++nerr;
         }
-      }        
+      }
     }
   }
 
@@ -378,6 +394,7 @@ Int TestRandomized
         std::cout << "FAIL " << cdr_name << ": " << ts[ti].str();
         if (mass_failed) std::cout << " mass re " << rd;
         std::cout << "\n";
+        if (mass_failed) pr(puf(desired_mass) pu(actual_mass));
       }
     }
   }
