@@ -37,7 +37,7 @@ CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells,
 template <typename ES>
 void CAAS<ES>::declare_tracer(int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! (problem_type & ProblemType::shapepreserve),
-                "CAAS is a WIP; ! shapepreserve is not supported yet.");
+                "CAAS does not support ! shapepreserve yet.");
   cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   tracer_decls_->push_back(Decl(problem_type, rhomidx));
   if (problem_type & ProblemType::conserve)

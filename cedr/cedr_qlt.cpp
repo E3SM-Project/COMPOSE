@@ -740,7 +740,9 @@ template <typename ES> void QLT<ES>
       // Tracers.
       for (Int pti = 0; pti < md_.nprobtypes; ++pti) {
         const Int problem_type = md_.get_problem_type(pti);
-        const bool sum_only = problem_type & ProblemType::shapepreserve;
+        const bool nonnegative = problem_type & ProblemType::nonnegative;
+        const bool shapepreserve = problem_type & ProblemType::shapepreserve;
+        const bool conserve = problem_type & ProblemType::conserve;
         const Int bsz = md_.get_problem_type_l2r_bulk_size(problem_type);
         const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
         for (Int bi = bis; bi < bie; ++bi) {
@@ -750,11 +752,15 @@ template <typename ES> void QLT<ES>
           const auto kid1 = ns_->node_h(n->kids[1]);
           const Real* const k0 = &bd_.l2r_data(kid0->offset*l2rndps + bdi);
           const Real* const k1 = &bd_.l2r_data(kid1->offset*l2rndps + bdi);
-          me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
-          me[1] =            k0[1] + k1[1] ;
-          me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
-          if (bsz == 4)
-            me[3] =          k0[3] + k1[3] ;
+          if (nonnegative) {
+            me[0] = k0[1] + k1[1];
+            if (conserve) me[1] = k0[3] + k1[3];
+          } else {
+            me[0] = shapepreserve ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+            me[1] = k0[1] + k1[1];
+            me[2] = shapepreserve ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+            if (conserve) me[3] = k0[3] + k1[3] ;
+          }
         }
       }
     }
@@ -788,13 +794,17 @@ template <typename ES> void QLT<ES>
     const Int problem_type = a.trcr2prob(ti);
     const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
     const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
-    // If QLT is enforcing global mass conservation, set the root's r2l Qm
-    // value to the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to
-    // the r2l one.
-    const Int os = problem_type & ProblemType::conserve ? 3 : 1;
+    // If QLT is enforcing global mass conservation, set root's r2l Qm value to
+    // the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to the r2l one.
+    const Int os = (problem_type & ProblemType::conserve ?
+                    md_.get_problem_type_l2r_bulk_size(problem_type) - 1 :
+                    1);
     r2l_data(n.offset*r2lndps + r2lbdi) = l2r_data(n.offset*l2rndps + l2rbdi + os);
-    if ( ! (problem_type & ProblemType::shapepreserve)) {
-      // We now know the global q_{min,max}. Start propagating it leafward.
+    if ((problem_type & ProblemType::consistent) &&
+        ! (problem_type & ProblemType::shapepreserve)) {
+      // Consistent but not shape preserving, so we're solving a dynamic range
+      // preservation problem. We now know the global q_{min,max}. Start
+      // propagating it leafward.
       r2l_data(n.offset*r2lndps + r2lbdi + 1) = l2r_data(n.offset*l2rndps + l2rbdi + 0);
       r2l_data(n.offset*r2lndps + r2lbdi + 2) = l2r_data(n.offset*l2rndps + l2rbdi + 2);
     }
@@ -905,7 +915,8 @@ template <typename ES> void QLT<ES>
           const Int l2rbdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));
           const Int r2lbdi = md_.a_d.trcr2br2l(md_.a_d.bidx2trcr(bi));
           cedr_assert(n->nkids == 2);
-          if ( ! (problem_type & ProblemType::shapepreserve)) {
+          if ((problem_type & ProblemType::consistent) &&
+              ! (problem_type & ProblemType::shapepreserve)) {
             const Real q_min = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 1);
             const Real q_max = bd_.r2l_data(n->offset*r2lndps + r2lbdi + 2);
             bd_.l2r_data(n->offset*l2rndps + l2rbdi + 0) = q_min;

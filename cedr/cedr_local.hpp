@@ -37,7 +37,7 @@ void caas(const Int n, const Real* a, const Real b,
           const Real* xlo, const Real* xhi,
           const Real* y, Real* x);
 
-struct LocalMethod { enum Enum { least_squares, caas }; };
+struct Method { enum Enum { least_squares, caas }; };
 
 // Solve
 //     min_x norm(x - y; w)
@@ -47,7 +47,7 @@ struct LocalMethod { enum Enum { least_squares, caas }; };
 // infeasible. w is used only if lcl_method = least_squares.
 KOKKOS_INLINE_FUNCTION
 Int solve_1eq_nonneg(const Int n, const Real* a, const Real b, const Real* y, Real* x,
-                     const Real* w, const LocalMethod::Enum lcl_method = LocalMethod::caas);
+                     const Real* w, const Method::Enum lcl_method);
 
 Int unittest();
 

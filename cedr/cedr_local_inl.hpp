@@ -301,7 +301,7 @@ void caas (const Int n, const Real* a, const Real b,
 
 KOKKOS_INLINE_FUNCTION
 Int solve_1eq_nonneg (const Int n, const Real* a, const Real b, const Real* y, Real* x,
-                      const Real* w,  const LocalMethod::Enum method) {
+                      const Real* w,  const Method::Enum method) {
   cedr_kernel_assert(n <= 16);
   if (b < 0) return -1;
 
@@ -312,7 +312,7 @@ Int solve_1eq_nonneg (const Int n, const Real* a, const Real b, const Real* y, R
   for (int i = 0; i < n; ++i)
     xhi[i] = b/a[i];
 
-  if (method == LocalMethod::caas) {
+  if (method == Method::caas) {
     caas(n, a, b, zero, xhi, y, x);
     return 1;
   } else {

@@ -141,7 +141,7 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
   { // Solve the node's QP.
     static const Real ones[] = {1, 1};
     const Real w[] = {1/rhom0, 1/rhom1};
-    Real Qm_kids[2] = {k0d[1], k1d[1]};
+    Real Qm_kids[] = {k0d[1], k1d[1]};
     local::solve_1eq_bc_qp_2d(w, ones, Qm, Qm_min_kids, Qm_max_kids,
                               Qm_orig_kids, Qm_kids);
     Qm0 = Qm_kids[0];
@@ -154,7 +154,8 @@ void solve_node_problem (const Int problem_type,
                          const Real& rhom, const Real* pd, const Real& Qm,
                          const Real& rhom0, const Real* k0d, Real& Qm0,
                          const Real& rhom1, const Real* k1d, Real& Qm1) {
-  if ( ! (problem_type & ProblemType::shapepreserve)) {      
+  if ((problem_type & ProblemType::consistent) &&
+      ! (problem_type & ProblemType::shapepreserve)) {      
     Real mpd[3], mk0d[3], mk1d[3];
     mpd[0]  = pd [0]*rhom ; mpd [1] = pd[1] ; mpd [2] = pd [2]*rhom ;
     mk0d[0] = k0d[0]*rhom0; mk0d[1] = k0d[1]; mk0d[2] = k0d[2]*rhom0;
@@ -162,8 +163,19 @@ void solve_node_problem (const Int problem_type,
     solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
     return;
   }
+  if (problem_type & ProblemType::nonnegative) {
+    static const Real ones[] = {1, 1};
+    const Real w[] = {1/rhom0, 1/rhom1};
+    Real Qm_orig_kids[] = {k0d[1], k1d[1]};
+    Real Qm_kids[2] = {k0d[1], k1d[1]};
+    local::solve_1eq_nonneg(2, ones, Qm, Qm_orig_kids, Qm_kids, w,
+                            local::Method::least_squares);
+    Qm0 = Qm_kids[0];
+    Qm1 = Qm_kids[1];
+  }
   solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
 }
+
 } // namespace impl
 } // namespace qlt
 } // namespace cedr

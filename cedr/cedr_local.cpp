@@ -246,9 +246,9 @@ Int test_1eq_nonneg () {
         x1_caas[i] = urand() > 0.5 ? y[i] : -1;
         x1_ls[i] = urand() > 0.5 ? y[i] : -1;
       }
-      solve_1eq_nonneg(n, a, b, y, x1_caas, w, LocalMethod::caas);
+      solve_1eq_nonneg(n, a, b, y, x1_caas, w, Method::caas);
       caas(n, a, b, xlo, xhi, y, x_caas);
-      solve_1eq_nonneg(n, a, b, y, x1_ls, w, LocalMethod::least_squares);
+      solve_1eq_nonneg(n, a, b, y, x1_ls, w, Method::least_squares);
       solve_1eq_bc_qp(n, w, a, b, xlo, xhi, y, x_ls);
       const Real rd_caas = reldif(x_caas, x1_caas, 2);
       const Real rd_ls = reldif(x_ls, x1_ls, 2);

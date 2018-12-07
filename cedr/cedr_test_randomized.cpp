@@ -34,7 +34,7 @@ void TestRandomized::init_tracers_vector () {
   };
   Int tracer_idx = 0;
   for (Int perturb = 0; perturb < 6; ++perturb)
-    for (Int ti = 0; ti < 4 /*sizeof(pts)/sizeof(*pts)*/; ++ti) {
+    for (Int ti = 0; ti < sizeof(pts)/sizeof(*pts); ++ti) {
       Tracer t;
       t.problem_type = pts[ti];
       const bool shapepreserve = t.problem_type & PT::shapepreserve;
