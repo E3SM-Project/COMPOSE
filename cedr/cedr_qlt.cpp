@@ -705,7 +705,9 @@ template <typename ES> void QLT<ES>
         const Int bi = fi - 1; // bulk index
         const Int ti = a.bidx2trcr(bi); // tracer (user) index
         const Int problem_type = a.trcr2prob(ti);
-        const bool sum_only = problem_type & ProblemType::shapepreserve;
+        const bool nonnegative = problem_type & ProblemType::nonnegative;
+        const bool shapepreserve = problem_type & ProblemType::shapepreserve;
+        const bool conserve = problem_type & ProblemType::conserve;
         const Int bsz = MetaData::get_problem_type_l2r_bulk_size(problem_type);
         const Int bdi = a.trcr2bl2r(ti);
         Real* const me = &l2r_data(n.offset*l2rndps + bdi);
@@ -713,11 +715,15 @@ template <typename ES> void QLT<ES>
         const auto& kid1 = d.node(n.kids[1]);
         const Real* const k0 = &l2r_data(kid0.offset*l2rndps + bdi);
         const Real* const k1 = &l2r_data(kid1.offset*l2rndps + bdi);
-        me[0] = sum_only ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
-        me[1] =            k0[1] + k1[1] ;
-        me[2] = sum_only ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
-        if (bsz == 4)
-          me[3] =          k0[3] + k1[3] ;
+        if (nonnegative) {
+          me[0] = k0[0] + k1[0];
+          if (conserve) me[1] = k0[1] + k1[1];
+        } else {
+          me[0] = shapepreserve ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
+          me[1] = k0[1] + k1[1];
+          me[2] = shapepreserve ? k0[2] + k1[2] : cedr::impl::max(k0[2], k1[2]);
+          if (conserve) me[3] = k0[3] + k1[3] ;
+        }
       }
     };
     Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), combine_kid_data);
@@ -880,10 +886,10 @@ template <typename ES> void QLT<ES>
       const Int l2rbdi = a.trcr2bl2r(a.bidx2trcr(bi));
       const Int r2lbdi = a.trcr2br2l(a.bidx2trcr(bi));
       cedr_kernel_assert(n.nkids == 2);
-      if ( ! (problem_type & ProblemType::shapepreserve)) {
-        // Pass q_{min,max} info along. l2r data are updated for use
-        // in solve_node_problem. r2l data are updated for use in
-        // isend.
+      if ((problem_type & ProblemType::consistent) &&
+          ! (problem_type & ProblemType::shapepreserve)) {
+        // Pass q_{min,max} info along. l2r data are updated for use in
+        // solve_node_problem. r2l data are updated for use in isend.
         const Real q_min = r2l_data(n.offset*r2lndps + r2lbdi + 1);
         const Real q_max = r2l_data(n.offset*r2lndps + r2lbdi + 2);
         l2r_data(n.offset*l2rndps + l2rbdi + 0) = q_min;
