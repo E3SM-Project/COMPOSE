@@ -27,7 +27,7 @@ void TestRandomized::init_tracers_vector () {
   typedef Tracer::PT PT;
   static const Int pts[] = {
     PT::conserve | PT::shapepreserve | PT::consistent,
-    PT::shapepreserve, // Test a noncanonical problem type.
+    PT::shapepreserve,
     PT::conserve | PT::consistent,
     PT::consistent,
     PT::nonnegative,
@@ -40,11 +40,12 @@ void TestRandomized::init_tracers_vector () {
       Tracer t;
       t.problem_type = pts[ti];
       const bool shapepreserve = t.problem_type & PT::shapepreserve;
+      const bool nonnegative = t.problem_type & PT::nonnegative;
       t.idx = tracer_idx++;
       t.perturbation_type = perturb;
       t.safe_should_hold = true;
       t.no_change_should_hold = perturb == 0;
-      t.local_should_hold = perturb < 4 && shapepreserve;
+      t.local_should_hold = perturb < 4 && (shapepreserve || nonnegative);
       t.write = perturb == 2 && ti == 2;
       tracers_.push_back(t);
     }
@@ -66,9 +67,12 @@ void TestRandomized::generate_Q (const Tracer& t, Values& v) {
   const bool nonneg_only = t.problem_type & ProblemType::nonnegative;
   for (Int i = 0; i < n; ++i) {
     if (nonneg_only) {
-      Qm_min[i] = Qm_max[i] = -1; // unused
       // Make sure the generated Qm is globally positive.
       Qm[i] = ((i % 2 == 0) ? 0.75 : -0.75) + urand();
+      // Qm_min,max are unused in QLT, but need them to be set here for
+      // bookkeeping in check().
+      Qm_min[i] = 0;
+      Qm_max[i] = 10;
     } else {
       // The typical use case has 0 <= q_min <= q, but test with general sign.
       const Real
@@ -394,7 +398,7 @@ Int TestRandomized
         std::cout << "FAIL " << cdr_name << ": " << ts[ti].str();
         if (mass_failed) std::cout << " mass re " << rd;
         std::cout << "\n";
-        if (mass_failed) pr(puf(desired_mass) pu(actual_mass));
+        //pr(puf(desired_mass) pu(actual_mass));
       }
     }
   }

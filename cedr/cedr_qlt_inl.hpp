@@ -162,18 +162,18 @@ void solve_node_problem (const Int problem_type,
     mk1d[0] = k1d[0]*rhom1; mk1d[1] = k1d[1]; mk1d[2] = k1d[2]*rhom1;
     solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
     return;
-  }
-  if (problem_type & ProblemType::nonnegative) {
+  } else if (problem_type & ProblemType::nonnegative) {
     static const Real ones[] = {1, 1};
     const Real w[] = {1/rhom0, 1/rhom1};
     Real Qm_orig_kids[] = {k0d[0], k1d[0]};
     Real Qm_kids[2] = {k0d[0], k1d[0]};
-    local::solve_1eq_nonneg(2, ones, Qm, Qm_orig_kids, Qm_kids, w,
-                            local::Method::least_squares);
+    const Int info = local::solve_1eq_nonneg(2, ones, Qm, Qm_orig_kids, Qm_kids, w,
+                                             local::Method::least_squares);
     Qm0 = Qm_kids[0];
     Qm1 = Qm_kids[1];
+  } else {
+    solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
   }
-  solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
 }
 
 } // namespace impl

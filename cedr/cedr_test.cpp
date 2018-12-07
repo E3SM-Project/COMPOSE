@@ -90,7 +90,7 @@ int main (int argc, char** argv) {
     if (p->amroot()) inp.print(std::cout);
     if (inp.qin.unittest) {
       nerr += cedr::local::unittest();
-      nerr += cedr::caas::test::unittest(p);
+      //nerr += cedr::caas::test::unittest(p);
     }
     if (inp.qin.unittest || inp.qin.perftest)
       nerr += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);

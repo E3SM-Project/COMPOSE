@@ -753,8 +753,8 @@ template <typename ES> void QLT<ES>
           const Real* const k0 = &bd_.l2r_data(kid0->offset*l2rndps + bdi);
           const Real* const k1 = &bd_.l2r_data(kid1->offset*l2rndps + bdi);
           if (nonnegative) {
-            me[0] = k0[1] + k1[1];
-            if (conserve) me[1] = k0[3] + k1[3];
+            me[0] = k0[0] + k1[0];
+            if (conserve) me[1] = k0[1] + k1[1];
           } else {
             me[0] = shapepreserve ? k0[0] + k1[0] : cedr::impl::min(k0[0], k1[0]);
             me[1] = k0[1] + k1[1];
@@ -798,7 +798,7 @@ template <typename ES> void QLT<ES>
     // the l2r Qm_prev's sum; otherwise, copy the l2r Qm value to the r2l one.
     const Int os = (problem_type & ProblemType::conserve ?
                     md_.get_problem_type_l2r_bulk_size(problem_type) - 1 :
-                    1);
+                    (problem_type & ProblemType::nonnegative ? 0 : 1));
     r2l_data(n.offset*r2lndps + r2lbdi) = l2r_data(n.offset*l2rndps + l2rbdi + os);
     if ((problem_type & ProblemType::consistent) &&
         ! (problem_type & ProblemType::shapepreserve)) {
