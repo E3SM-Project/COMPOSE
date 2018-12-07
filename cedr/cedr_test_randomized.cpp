@@ -36,7 +36,6 @@ void TestRandomized::init_tracers_vector () {
   Int tracer_idx = 0;
   for (Int perturb = 0; perturb < 6; ++perturb)
     for (Int ti = 0; ti < sizeof(pts)/sizeof(*pts); ++ti) {
-      if (ti >= 4 && perturb > 0) continue;
       Tracer t;
       t.problem_type = pts[ti];
       const bool shapepreserve = t.problem_type & PT::shapepreserve;
@@ -68,7 +67,9 @@ void TestRandomized::generate_Q (const Tracer& t, Values& v) {
   for (Int i = 0; i < n; ++i) {
     if (nonneg_only) {
       // Make sure the generated Qm is globally positive.
-      Qm[i] = ((i % 2 == 0) ? 0.75 : -0.75) + urand();
+      Qm[i] = (t.no_change_should_hold ?
+               urand() :
+               ((i % 2 == 0) ? 0.75 : -0.75) + urand());
       // Qm_min,max are unused in QLT, but need them to be set here for
       // bookkeeping in check().
       Qm_min[i] = 0;
@@ -292,7 +293,7 @@ void TestRandomized::write_post (const Tracer& t, Values& v) {
 Int TestRandomized
 ::check (const std::string& cdr_name, const mpi::Parallel& p,
          const std::vector<Tracer>& ts, const Values& v) {
-  static const bool details = false;
+  static const bool details = true;
   static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
   Int nerr = 0;
   std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
