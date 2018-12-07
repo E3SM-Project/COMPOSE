@@ -28,23 +28,30 @@ void QLT<ES>::set_Qm (const Int& lclcellidx, const Int& tracer_idx,
     const Int bdi = md_.a_d.trcr2bl2r(tracer_idx);
     bd = &bd_.l2r_data(ndps*lclcellidx + bdi);
   }
-  bd[1] = Qm;
   {
     const Int problem_type = md_.a_d.trcr2prob(tracer_idx);
+    Int next = 0;
     if (problem_type & ProblemType::shapepreserve) {
       bd[0] = Qm_min;
+      bd[1] = Qm;
       bd[2] = Qm_max;
+      next = 3;
     } else if (problem_type & ProblemType::consistent) {
       const Real rhom = bd_.l2r_data(ndps*lclcellidx);
       bd[0] = Qm_min / rhom;
+      bd[1] = Qm;
       bd[2] = Qm_max / rhom;
+      next = 3;
+    } else if (problem_type & ProblemType::nonnegative) {
+      bd[0] = Qm;
+      next = 1;
     } else {
       cedr_kernel_throw_if(true, "set_Q: invalid problem_type.");
     }
     if (problem_type & ProblemType::conserve) {
       cedr_kernel_throw_if(Qm_prev == std::numeric_limits<Real>::infinity(),
                            "Qm_prev was not provided to set_Q.");
-      bd[3] = Qm_prev;
+      bd[next] = Qm_prev;
     }
   }
 }

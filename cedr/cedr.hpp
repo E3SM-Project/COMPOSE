@@ -29,6 +29,11 @@ typedef double Real;
 struct ProblemType {
   enum : Int {
     conserve = 1, shapepreserve = 1 << 1, consistent = 1 << 2,
+    // The 'nonnegative' problem type can be combined only with 'conserve'. The
+    // caller can implement nonnegativity when running with 'shapepreserve' or
+    // 'consistent' simply by setting Qm_min = 0. The 'nonnegativity' type is
+    // reserved for a particularly efficient type of problem in which
+    // Qm_{min,max} are not specified.
     nonnegative = 1 << 3
   };
 };

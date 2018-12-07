@@ -443,23 +443,31 @@ void QLT<ES>::init (const std::string& name, IntList& d,
 
 template <typename ES> KOKKOS_INLINE_FUNCTION
 int QLT<ES>::MetaData::get_problem_type (const int& idx) {
-  static const Int problem_type[] = { CPT::st, CPT::cst, CPT::t, CPT::ct };
+  static const Int problem_type[] = {
+    CPT::st, CPT::cst, CPT::t, CPT::ct, CPT::nn, CPT::cnn
+  };
   return problem_type[idx];
 }
     
 template <typename ES>
 int QLT<ES>::MetaData::get_problem_type_idx (const int& mask) {
   switch (mask) {
-  case CPT::s:  case CPT::st:  return 0;
-  case CPT::cs: case CPT::cst: return 1;
-  case CPT::t:  return 2;
-  case CPT::ct: return 3;
+  case CPT::s:   case CPT::st:  return 0;
+  case CPT::cs:  case CPT::cst: return 1;
+  case CPT::t:   return 2;
+  case CPT::ct:  return 3;
+  case CPT::nn:  return 4;
+  case CPT::cnn: return 5;
   default: cedr_kernel_throw_if(true, "Invalid problem type."); return -1;
   }
 }
 
 template <typename ES> KOKKOS_INLINE_FUNCTION
 int QLT<ES>::MetaData::get_problem_type_l2r_bulk_size (const int& mask) {
+  if (mask & ProblemType::nonnegative) {
+    if (mask & ProblemType::conserve) return 2;
+    return 1;
+  }
   if (mask & ProblemType::conserve) return 4;
   return 3;
 }
@@ -1003,9 +1011,13 @@ private:
       qlt_.declare_tracer(t.problem_type, 0);
     qlt_.end_tracer_declarations();
     cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
-    for (size_t i = 0; i < tracers_.size(); ++i)
-      cedr_assert(qlt_.get_problem_type(i) == (tracers_[i].problem_type |
-                                               ProblemType::consistent));
+    for (size_t i = 0; i < tracers_.size(); ++i) {
+      const auto pt = qlt_.get_problem_type(i);
+      cedr_assert((pt == ((tracers_[i].problem_type | ProblemType::consistent) &
+                          ~ProblemType::nonnegative)) ||
+                  (pt == ((tracers_[i].problem_type | ProblemType::nonnegative) &
+                          ~ProblemType::consistent)));
+    }
   }
   
   void run_impl (const Int trial) override {

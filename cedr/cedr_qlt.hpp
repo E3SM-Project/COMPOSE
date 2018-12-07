@@ -206,7 +206,7 @@ protected:
 
 PROTECTED_CUDA:
   struct MetaData {
-    enum : Int { nprobtypes = 4 };
+    enum : Int { nprobtypes = 6 };
 
     template <typename IntListT>
     struct Arrays {
@@ -241,8 +241,8 @@ PROTECTED_CUDA:
     struct CPT {
       //   The only problem not supported is conservation alone. It makes very
       // little sense to use QLT for conservation alone.
-      //   The remaining problems fall into 4 categories of details. These 4
-      // categories are tracked by QLT; which of the original 6 problems being
+      //   The remaining problems fall into 6 categories of details. These
+      // categories are tracked by QLT; which of the original problems being
       // solved is not important.
       enum {
         // l2r: rhom, (Qm_min, Qm, Qm_max)*; r2l: Qm*
@@ -254,7 +254,11 @@ PROTECTED_CUDA:
         // l2r: rhom, (q_min, Qm, q_max)*; r2l: (Qm, q_min, q_max)*
         t = ProblemType::consistent,
         // l2r: rhom, (q_min, Qm, q_max, Qm_prev)*; r2l: (Qm, q_min, q_max)*
-        ct = ProblemType::conserve | t
+        ct = ProblemType::conserve | t,
+        // l2r: rhom, Qm*; r2l: Qm*
+        nn = ProblemType::nonnegative,
+        // l2r: rhom, (Qm, Qm_prev)*; r2l: Qm*
+        cnn = ProblemType::conserve | nn
       };
     };
 

@@ -29,8 +29,8 @@ void TestRandomized::init_tracers_vector () {
     PT::shapepreserve, // Test a noncanonical problem type.
     PT::conserve | PT::consistent,
     PT::consistent,
-    PT::nonnegative | PT::shapepreserve,
-    PT::conserve | PT::nonnegative | PT::shapepreserve
+    PT::nonnegative,
+    PT::nonnegative | PT::conserve
   };
   Int tracer_idx = 0;
   for (Int perturb = 0; perturb < 6; ++perturb)
