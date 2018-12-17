@@ -116,7 +116,7 @@ Int init_tree (const Int& my_rank, const tree::Node::Ptr& node, Int& id) {
     node->rank = node->kids[0]->rank;
     node->cellidx = id++;
   } else {
-    cedr_throw_if(node->rank == my_rank && node->cellidx < 0 || node->cellidx >= id,
+    cedr_throw_if(node->rank == my_rank && (node->cellidx < 0 || node->cellidx >= id),
                   "cellidx is " << node->cellidx << " but should be between " <<
                   0 << " and " << id);
   }
@@ -708,7 +708,6 @@ template <typename ES> void QLT<ES>
         const bool nonnegative = problem_type & ProblemType::nonnegative;
         const bool shapepreserve = problem_type & ProblemType::shapepreserve;
         const bool conserve = problem_type & ProblemType::conserve;
-        const Int bsz = MetaData::get_problem_type_l2r_bulk_size(problem_type);
         const Int bdi = a.trcr2bl2r(ti);
         Real* const me = &l2r_data(n.offset*l2rndps + bdi);
         const auto& kid0 = d.node(n.kids[0]);
@@ -749,7 +748,6 @@ template <typename ES> void QLT<ES>
         const bool nonnegative = problem_type & ProblemType::nonnegative;
         const bool shapepreserve = problem_type & ProblemType::shapepreserve;
         const bool conserve = problem_type & ProblemType::conserve;
-        const Int bsz = md_.get_problem_type_l2r_bulk_size(problem_type);
         const Int bis = md_.a_d.prob2trcrptr[pti], bie = md_.a_d.prob2trcrptr[pti+1];
         for (Int bi = bis; bi < bie; ++bi) {
           const Int bdi = md_.a_d.trcr2bl2r(md_.a_d.bidx2trcr(bi));

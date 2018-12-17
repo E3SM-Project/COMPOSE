@@ -101,7 +101,7 @@ void CAAS<ES>::reduce_locally () {
   const auto probs = probs_;
   const auto send = send_;
   const auto d = d_;
-  if (user_reducer_) {
+  if (user_reduces) {
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const Int& j) {
       const auto k = j / nlclcells;
       const auto i = j % nlclcells;
@@ -209,7 +209,8 @@ void CAAS<ES>::finish_locally () {
 template <typename ES>
 void CAAS<ES>::run () {
   reduce_locally();
-  if (user_reducer_)
+  const bool user_reduces = user_reducer_ != nullptr;
+  if (user_reduces)
     (*user_reducer_)(*p_, send_.data(), recv_.data(),
                      nlclcells_, recv_.size(), MPI_SUM);
   else

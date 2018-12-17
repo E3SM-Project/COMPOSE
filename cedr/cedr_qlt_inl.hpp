@@ -167,8 +167,8 @@ void solve_node_problem (const Int problem_type,
     const Real w[] = {1/rhom0, 1/rhom1};
     Real Qm_orig_kids[] = {k0d[0], k1d[0]};
     Real Qm_kids[2] = {k0d[0], k1d[0]};
-    const Int info = local::solve_1eq_nonneg(2, ones, Qm, Qm_orig_kids, Qm_kids, w,
-                                             local::Method::least_squares);
+    local::solve_1eq_nonneg(2, ones, Qm, Qm_orig_kids, Qm_kids, w,
+                            local::Method::least_squares);
     Qm0 = Qm_kids[0];
     Qm1 = Qm_kids[1];
   } else {
