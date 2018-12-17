@@ -106,7 +106,7 @@ target_include_directories (${PROJECT_NAME} PUBLIC ${COMPOSE_INCLUDES})
 target_link_libraries (${PROJECT_NAME} ${COMPOSE_LIBRARIES})
 
 install (TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib)
-install (FILES ${HEADERS} DESTINATION include/compose)
+install (FILES ${HEADERS} ${CMAKE_BINARY_DIR}/config/compose_config.h DESTINATION include/compose)
 
 enable_testing ()
 add_subdirectory(siqk)
