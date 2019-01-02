@@ -112,14 +112,14 @@ void CAAS<ES>::reduce_locally () {
       send(nlclcells*      k  + i) = Qm_clip;
       send(nlclcells*(nt + k) + i) = Qm_term;
     };
-    Kokkos::parallel_for(nt*nlclcells, calc_Qm_clip);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclcells), calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
       const auto k = 2*nt + j / nlclcells;
       const auto i = j % nlclcells;
       const auto os = (k-nt+1)*nlclcells;
       send(nlclcells*k + i) = d(os+i);
     };
-    Kokkos::parallel_for(2*nt*nlclcells, set_Qm_minmax);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclcells), set_Qm_minmax);
   } else {
     using ESU = cedr::impl::ExeSpaceUtils<ES>;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const typename ESU::Member& t) {
