@@ -96,6 +96,24 @@ void r2l_nl_adjust_bounds (Real Qm_bnd[2], const Real rhom[2], Real Qm_extra) {
   }
 }
 
+template <typename ES> KOKKOS_INLINE_FUNCTION
+int QLT<ES>::MetaData::get_problem_type (const int& idx) {
+  static const Int problem_type[] = {
+    CPT::st, CPT::cst, CPT::t, CPT::ct, CPT::nn, CPT::cnn
+  };
+  return problem_type[idx];
+}
+    
+template <typename ES> KOKKOS_INLINE_FUNCTION
+int QLT<ES>::MetaData::get_problem_type_l2r_bulk_size (const int& mask) {
+  if (mask & ProblemType::nonnegative) {
+    if (mask & ProblemType::conserve) return 2;
+    return 1;
+  }
+  if (mask & ProblemType::conserve) return 4;
+  return 3;
+}
+
 namespace impl {
 KOKKOS_INLINE_FUNCTION
 void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
