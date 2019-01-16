@@ -46,7 +46,7 @@ struct NodeSets {
     // are multiples of this unit.
     Int offset;
 
-    Node () : rank(-1), id(-1), parent(-1), nkids(0), offset(-1) {}
+    KOKKOS_FUNCTION Node () : rank(-1), id(-1), parent(-1), nkids(0), offset(-1) {}
   };
 
   // A level in the level schedule that is constructed to orchestrate
