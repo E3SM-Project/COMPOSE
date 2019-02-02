@@ -52,7 +52,8 @@ struct CDR {
     const Int& lclcellidx, const Int& tracer_idx,
     // Current tracer mass in this cell.
     const Real& Qm,
-    // Minimum and maximum permitted tracer mass in this cell.
+    // Minimum and maximum permitted tracer mass in this cell. Ignored if
+    // ProblemType is 'nonnegative'.
     const Real& Qm_min, const Real& Qm_max,
     // If mass conservation is requested, provide the previous Qm, which will be
     // summed to give the desired global mass.

@@ -37,7 +37,7 @@ CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells,
 template <typename ES>
 void CAAS<ES>::declare_tracer(int problem_type, const Int& rhomidx) {
   cedr_throw_if( ! (problem_type & ProblemType::shapepreserve),
-                "CAAS is a WIP; ! shapepreserve is not supported yet.");
+                "CAAS does not support ! shapepreserve yet.");
   cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   tracer_decls_->push_back(Decl(problem_type, rhomidx));
   if (problem_type & ProblemType::conserve)
@@ -101,7 +101,7 @@ void CAAS<ES>::reduce_locally () {
   const auto probs = probs_;
   const auto send = send_;
   const auto d = d_;
-  if (user_reducer_) {
+  if (user_reduces) {
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const Int& j) {
       const auto k = j / nlclcells;
       const auto i = j % nlclcells;
@@ -112,14 +112,14 @@ void CAAS<ES>::reduce_locally () {
       send(nlclcells*      k  + i) = Qm_clip;
       send(nlclcells*(nt + k) + i) = Qm_term;
     };
-    Kokkos::parallel_for(nt*nlclcells, calc_Qm_clip);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclcells), calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
       const auto k = 2*nt + j / nlclcells;
       const auto i = j % nlclcells;
       const auto os = (k-nt+1)*nlclcells;
       send(nlclcells*k + i) = d(os+i);
     };
-    Kokkos::parallel_for(2*nt*nlclcells, set_Qm_minmax);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclcells), set_Qm_minmax);
   } else {
     using ESU = cedr::impl::ExeSpaceUtils<ES>;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const typename ESU::Member& t) {
@@ -209,7 +209,8 @@ void CAAS<ES>::finish_locally () {
 template <typename ES>
 void CAAS<ES>::run () {
   reduce_locally();
-  if (user_reducer_)
+  const bool user_reduces = user_reducer_ != nullptr;
+  if (user_reduces)
     (*user_reducer_)(*p_, send_.data(), recv_.data(),
                      nlclcells_, recv_.size(), MPI_SUM);
   else
