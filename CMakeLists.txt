@@ -95,6 +95,10 @@ prc (COMPOSE_MIMIC_GPU)
 
 add_definitions (-DCOMPOSE_CONFIG_IS_CMAKE)
 configure_file (${CMAKE_CURRENT_SOURCE_DIR}/compose_config.h.in ${CMAKE_BINARY_DIR}/config/compose_config.h)
+set(COMPOSE_CONFIG_FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/config/compose_config.h
+)
+install(FILES ${COMPOSE_CONFIG_FILES} DESTINATION include/compose)
 
 add_library (${PROJECT_NAME} ${SOURCES})
 set_target_properties (${PROJECT_NAME} PROPERTIES
