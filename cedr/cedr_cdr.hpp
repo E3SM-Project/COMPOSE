@@ -8,6 +8,11 @@
 
 namespace cedr {
 // Constrained Density Reconstructor interface.
+//   Find a point Qm in the set
+//      { Qm: ( i) e'Qm = Qm_global
+//            (ii) Qm_min <= Qm <= Qm_max },
+// where e is the vector of 1s. Each algorithm in CEDR has its own optimality
+// principle to decide on the point.
 struct CDR {
   typedef std::shared_ptr<CDR> Ptr;
 
