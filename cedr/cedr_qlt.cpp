@@ -1258,3 +1258,6 @@ template class cedr::qlt::QLT<Kokkos::OpenMP>;
 #ifdef KOKKOS_ENABLE_CUDA
 template class cedr::qlt::QLT<Kokkos::Cuda>;
 #endif
+#ifdef KOKKOS_ENABLE_THREADS
+template class cedr::qlt::QLT<Kokkos::Threads>;
+#endif

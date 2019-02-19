@@ -9,6 +9,16 @@ namespace Kokkos {
 struct Real2 {
   cedr::Real v[2];
   KOKKOS_INLINE_FUNCTION Real2 () { v[0] = v[1] = 0; }
+
+  KOKKOS_INLINE_FUNCTION void operator= (const Real2& s) {
+    v[0] = s.v[0];
+    v[1] = s.v[1];
+  }
+  KOKKOS_INLINE_FUNCTION void operator= (const volatile Real2& s) volatile {
+    v[0] = s.v[0];
+    v[1] = s.v[1];
+  }
+
   KOKKOS_INLINE_FUNCTION Real2& operator+= (const Real2& o) {
     v[0] += o.v[0];
     v[1] += o.v[1];
@@ -325,4 +335,7 @@ template class cedr::caas::CAAS<Kokkos::OpenMP>;
 #endif
 #ifdef KOKKOS_ENABLE_CUDA
 template class cedr::caas::CAAS<Kokkos::Cuda>;
+#endif
+#ifdef KOKKOS_ENABLE_THREADS
+template class cedr::caas::CAAS<Kokkos::Threads>;
 #endif
