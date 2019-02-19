@@ -336,3 +336,6 @@ template class cedr::caas::CAAS<Kokkos::OpenMP>;
 #ifdef KOKKOS_ENABLE_CUDA
 template class cedr::caas::CAAS<Kokkos::Cuda>;
 #endif
+#ifdef KOKKOS_ENABLE_THREADS
+template class cedr::caas::CAAS<Kokkos::Threads>;
+#endif
