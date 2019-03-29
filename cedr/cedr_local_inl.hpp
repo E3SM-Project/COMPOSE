@@ -71,7 +71,7 @@ Int solve_1eq_bc_qp_2d (const Real* w, const Real* a, const Real b,
                         const Real* y, Real* x) {
   const Real r_tol = impl::calc_r_tol(b, a, y, 2);
   Int info = impl::check_lu(2, a, b, xlo, xhi, r_tol, x);
-  if (info != 0) return info;
+  if (info == -1) return info;
 
   { // Check if the optimal point ignoring bound constraints is in bounds.
     Real qmass = 0, dm = b;
