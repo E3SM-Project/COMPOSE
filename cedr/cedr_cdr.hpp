@@ -29,6 +29,17 @@ struct CDR {
   // It is an error to call this function from a parallel region.
   virtual void end_tracer_declarations() = 0;
 
+  // Optionally query the sizes of the two primary memory buffers. This
+  // operation is valid after end_tracer_declarations was called.
+  virtual void get_buffers_sizes(size_t& buf1, size_t& buf2) = 0;
+  // Optionally provide the two primary memory buffers. These pointers must
+  // point to memory having at least the sizes returned by get_buffer_sizes.
+  virtual void set_buffers(Real* buf1, Real* buf2) = 0;
+
+  // Call this method to finish the setup phase. The subsequent methods are
+  // valid only after this method has been called.
+  virtual void finish_setup() = 0;
+
   virtual int get_problem_type(const Int& tracer_idx) const = 0;
 
   virtual Int get_num_tracers() const = 0;

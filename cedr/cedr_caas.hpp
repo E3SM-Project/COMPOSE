@@ -16,6 +16,7 @@ public:
   typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
   typedef CAAS<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
+  typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
 
 public:
   struct UserAllReducer {
@@ -39,6 +40,12 @@ public:
 
   void end_tracer_declarations() override;
 
+  void get_buffers_sizes(size_t& buf1, size_t& buf2) override;
+
+  void set_buffers(Real* buf1, Real* buf2) override;
+
+  void finish_setup() override;
+
   int get_problem_type(const Int& tracer_idx) const override;
 
   Int get_num_tracers() const override;
@@ -58,7 +65,6 @@ public:
   Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
 
 protected:
-  typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
   typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
   typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
 
@@ -78,12 +84,16 @@ protected:
   IntList probs_, t2r_;
   typename IntList::HostMirror probs_h_;
   RealList d_, send_, recv_;
+  bool finished_setup_;
 
   void reduce_globally();
 
 PRIVATE_CUDA:
   void reduce_locally();
   void finish_locally();
+
+private:
+  void get_buffers_sizes(size_t& buf1, size_t& buf2, size_t& buf3);
 };
 
 namespace test {
