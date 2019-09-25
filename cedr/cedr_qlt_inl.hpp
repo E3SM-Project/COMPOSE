@@ -118,7 +118,8 @@ namespace impl {
 KOKKOS_INLINE_FUNCTION
 void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
                          const Real& rhom0, const Real* k0d, Real& Qm0,
-                         const Real& rhom1, const Real* k1d, Real& Qm1) {
+                         const Real& rhom1, const Real* k1d, Real& Qm1,
+                         const bool prefer_mass_con_to_bounds) {
   Real Qm_min_kids [] = {k0d[0], k1d[0]};
   Real Qm_orig_kids[] = {k0d[1], k1d[1]};
   Real Qm_max_kids [] = {k0d[2], k1d[2]};
@@ -161,7 +162,9 @@ void solve_node_problem (const Real& rhom, const Real* pd, const Real& Qm,
     const Real w[] = {1/rhom0, 1/rhom1};
     Real Qm_kids[] = {k0d[1], k1d[1]};
     local::solve_1eq_bc_qp_2d(w, ones, Qm, Qm_min_kids, Qm_max_kids,
-                              Qm_orig_kids, Qm_kids);
+                              Qm_orig_kids, Qm_kids,
+                              ! prefer_mass_con_to_bounds /* clip */,
+                              ! prefer_mass_con_to_bounds /* early_exit_on_tol */);
     Qm0 = Qm_kids[0];
     Qm1 = Qm_kids[1];
   }
@@ -171,14 +174,16 @@ KOKKOS_INLINE_FUNCTION
 void solve_node_problem (const Int problem_type,
                          const Real& rhom, const Real* pd, const Real& Qm,
                          const Real& rhom0, const Real* k0d, Real& Qm0,
-                         const Real& rhom1, const Real* k1d, Real& Qm1) {
+                         const Real& rhom1, const Real* k1d, Real& Qm1,
+                         const bool prefer_mass_con_to_bounds) {
   if ((problem_type & ProblemType::consistent) &&
       ! (problem_type & ProblemType::shapepreserve)) {      
     Real mpd[3], mk0d[3], mk1d[3];
     mpd[0]  = pd [0]*rhom ; mpd [1] = pd[1] ; mpd [2] = pd [2]*rhom ;
     mk0d[0] = k0d[0]*rhom0; mk0d[1] = k0d[1]; mk0d[2] = k0d[2]*rhom0;
     mk1d[0] = k1d[0]*rhom1; mk1d[1] = k1d[1]; mk1d[2] = k1d[2]*rhom1;
-    solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1);
+    solve_node_problem(rhom, mpd, Qm, rhom0, mk0d, Qm0, rhom1, mk1d, Qm1,
+                       prefer_mass_con_to_bounds);
     return;
   } else if (problem_type & ProblemType::nonnegative) {
     static const Real ones[] = {1, 1};
@@ -190,7 +195,8 @@ void solve_node_problem (const Int problem_type,
     Qm0 = Qm_kids[0];
     Qm1 = Qm_kids[1];
   } else {
-    solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1);
+    solve_node_problem(rhom, pd, Qm, rhom0, k0d, Qm0, rhom1, k1d, Qm1,
+                       prefer_mass_con_to_bounds);
   }
 }
 

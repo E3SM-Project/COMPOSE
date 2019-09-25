@@ -16,7 +16,25 @@ namespace cedr {
 struct CDR {
   typedef std::shared_ptr<CDR> Ptr;
 
+  struct Options {
+    // In exact arithmetic, mass is conserved exactly and bounds of a feasible
+    // problem are not violated. In inexact arithmetic, these properties are
+    // inexact, and approximation quality of one can be preferred to that of the
+    // other. Use this option to prefer numerical mass conservation over
+    // numerical bounds nonviolation. In practice, this option governs errrs at
+    // the level of 10 to 1000 times numeric_limits<Real>::epsilon().
+    bool prefer_numerical_mass_conservation_to_numerical_bounds;
+
+    Options ()
+      : prefer_numerical_mass_conservation_to_numerical_bounds(false)
+    {}
+  };
+
+  CDR (const Options options = Options()) : options_(options) {}
+
   virtual void print(std::ostream& os) const {}
+
+  const Options& get_options () const { return options_; }
 
   // Set up QLT tracer metadata. Call declare_tracer in order of the tracer
   // index in the caller's numbering. Once end_tracer_declarations is called, it
@@ -82,6 +100,9 @@ struct CDR {
   // Get a cell's tracer mass Qm after the QLT algorithm has run.
   KOKKOS_FUNCTION
   virtual Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const = 0;
+
+protected:
+  Options options_;
 };
 } // namespace cedr
 

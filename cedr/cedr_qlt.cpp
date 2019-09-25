@@ -586,7 +586,10 @@ void QLT<ES>::init_ordinals () {
 }
 
 template <typename ES>
-QLT<ES>::QLT (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree) {
+QLT<ES>::QLT (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree,
+              Options options)
+  : CDR(options)
+{
   init(p, ncells, tree);
   cedr_throw_if(nlclcells() == 0, "QLT does not support 0 cells on a rank.");
 }
@@ -861,7 +864,8 @@ void r2l_solve_qp_solve_node_problem (
   const impl::NodeSets::Node& n,
   const impl::NodeSets::Node& k0, const impl::NodeSets::Node& k1,
   const Int& l2rndps, const Int& r2lndps,
-  const Int& l2rbdi, const Int& r2lbdi)
+  const Int& l2rbdi, const Int& r2lbdi,
+  const bool prefer_mass_con_to_bounds)
 {
   impl::solve_node_problem(
     problem_type,
@@ -873,12 +877,15 @@ void r2l_solve_qp_solve_node_problem (
      r2l_data(k0.offset*r2lndps + r2lbdi),
      l2r_data(k1.offset*l2rndps),
     &l2r_data(k1.offset*l2rndps + l2rbdi),
-     r2l_data(k1.offset*r2lndps + r2lbdi));
+     r2l_data(k1.offset*r2lndps + r2lbdi),
+    prefer_mass_con_to_bounds);
 }
 
 template <typename ES> void QLT<ES>
 ::r2l_solve_qp (const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const {
   Timer::start(Timer::snp);
+  const bool prefer_mass_con_to_bounds =
+    options_.prefer_numerical_mass_conservation_to_numerical_bounds;
   if (cedr::impl::OnGpu<ES>::value) {
     const auto d = *nsdd_;
     const auto l2r_data = bd_.l2r_data;
@@ -912,7 +919,7 @@ template <typename ES> void QLT<ES>
       }
       r2l_solve_qp_solve_node_problem(
         l2r_data, r2l_data, problem_type, n, d.node(n.kids[0]), d.node(n.kids[1]),
-        l2rndps, r2lndps, l2rbdi, r2lbdi);
+        l2rndps, r2lndps, l2rbdi, r2lbdi, prefer_mass_con_to_bounds);
     };
     Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
     Kokkos::fence();
@@ -946,7 +953,8 @@ template <typename ES> void QLT<ES>
           }
           r2l_solve_qp_solve_node_problem(
             bd_.l2r_data, bd_.r2l_data, problem_type, *n, *ns_->node_h(n->kids[0]),
-            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi);
+            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi,
+            prefer_mass_con_to_bounds);
         }
       }
     }
@@ -995,9 +1003,10 @@ public:
   typedef QLT<Kokkos::DefaultExecutionSpace> QLTT;
 
   TestQLT (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
-           const Int& ncells, const bool external_memory, const bool verbose)
-    : TestRandomized("QLT", p, ncells, verbose),
-      qlt_(p, ncells, tree), tree_(tree), external_memory_(external_memory)
+           const Int& ncells, const bool external_memory, const bool verbose,
+           CDR::Options options)
+    : TestRandomized("QLT", p, ncells, verbose, options),
+      qlt_(p, ncells, tree, options), tree_(tree), external_memory_(external_memory)
   {
     if (verbose) qlt_.print(std::cout);
     init();
@@ -1079,8 +1088,12 @@ private:
 // Test all QLT variations and situations.
 Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
               const Int& ncells, const Int nrepeat,
-              const bool write, const bool external_memory, const bool verbose) {
-  return TestQLT(p, tree, ncells, external_memory, verbose)
+              const bool write, const bool external_memory,
+              const bool prefer_mass_con_to_bounds, const bool verbose) {
+  CDR::Options options;
+  options.prefer_numerical_mass_conservation_to_numerical_bounds =
+    prefer_mass_con_to_bounds;
+  return TestQLT(p, tree, ncells, external_memory, verbose, options)
     .run<TestQLT::QLTT>(nrepeat, write);
 }
 } // namespace test
@@ -1240,17 +1253,21 @@ Int unittest_QLT (const Parallel::Ptr& p, const bool write_requested=false) {
   Int nerr = 0;
   for (size_t is = 0, islim = sizeof(szs)/sizeof(*szs); is < islim; ++is) {
     for (size_t id = 0, idlim = sizeof(dists)/sizeof(*dists); id < idlim; ++id) {
-      for (bool imbalanced: {false, true}) {
-        const auto external_memory = imbalanced;
-        if (p->amroot()) {
-          std::cout << " (" << szs[is] << ", " << id << ", " << imbalanced << ")";
-          std::cout.flush();
+      for (bool imbalanced : {false, true}) {
+        for (bool prefer_mass_con_to_bounds : {false, true}) {
+          const auto external_memory = imbalanced;
+          if (p->amroot()) {
+            std::cout << " (" << szs[is] << ", " << id << ", " << imbalanced << ", "
+                      << prefer_mass_con_to_bounds << ")";
+            std::cout.flush();
+          }
+          Mesh m(szs[is], p, dists[id]);
+          tree::Node::Ptr tree = make_tree(m, imbalanced);
+          const bool write = (write_requested && m.ncell() < 3000 &&
+                              is == islim-1 && id == idlim-1);
+          nerr += test::test_qlt(p, tree, m.ncell(), 1, write, external_memory,
+                                 prefer_mass_con_to_bounds, false);
         }
-        Mesh m(szs[is], p, dists[id]);
-        tree::Node::Ptr tree = make_tree(m, imbalanced);
-        const bool write = (write_requested && m.ncell() < 3000 &&
-                            is == islim-1 && id == idlim-1);
-        nerr += test::test_qlt(p, tree, m.ncell(), 1, write, external_memory, false);
       }
     }
   }
@@ -1285,7 +1302,7 @@ Int run_unit_and_randomized_tests (const Parallel::Ptr& p, const Input& in) {
     Timer::start(Timer::total); Timer::start(Timer::tree);
     tree::Node::Ptr tree = make_tree(m, false);
     Timer::stop(Timer::tree);
-    test::test_qlt(p, tree, in.ncells, in.nrepeat, false, false, in.verbose);
+    test::test_qlt(p, tree, in.ncells, in.nrepeat, false, false, false, in.verbose);
     Timer::stop(Timer::total);
     if (p->amroot()) Timer::print();
   }

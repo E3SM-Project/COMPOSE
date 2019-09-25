@@ -151,7 +151,8 @@ public:
   // Set up QLT topology and communication data structures based on a tree. Both
   // ncells and tree refer to the global mesh, not just this processor's
   // part. The tree must be identical across ranks.
-  QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
+  QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree,
+      CDR::Options options = Options());
 
   void print(std::ostream& os) const override;
 
@@ -347,6 +348,8 @@ Int test_qlt(const Parallel::Ptr& p, const tree::Node::Ptr& tree, const Int& nce
              const bool write,
              // Provide memory to QLT for its buffers.
              const bool external_memory,
+             // Set CDR::Options.prefer_numerical_mass_conservation_to_numerical_bounds.
+             const bool prefer_mass_con_to_bounds,
              const bool verbose);
 } // namespace test
 } // namespace qlt
