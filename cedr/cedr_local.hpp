@@ -29,7 +29,13 @@ KOKKOS_INLINE_FUNCTION
 Int solve_1eq_bc_qp_2d(const Real* w, const Real* a, const Real b,
                        const Real* xlo, const Real* xhi,
                        const Real* y, Real* x,
-                       const bool clip = true);
+                       const bool clip = true,
+                       // The 2D algorithm doesn't need to terminate based on a
+                       // tolerance, but by default it will exit early if the ND
+                       // algorithm would. Set this to false to run the full 2D
+                       // algorithm w/o checking the tolerance at start. If this
+                       // is false, the feasibility check is also disabled.
+                       const bool early_exit_on_tol = true);
 
 // ClipAndAssuredSum. Minimize the 1-norm with w = 1s. Does not check for
 // feasibility.

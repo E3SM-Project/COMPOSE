@@ -113,7 +113,7 @@ Int init_tree (const Int& my_rank, const tree::Node::Ptr& node, Int& id) {
     depth = std::max(depth, init_tree(my_rank, node->kids[i], id));
   }
   if (node->nkids) {
-    node->rank = node->kids[0]->rank;
+    if (node->rank < 0) node->rank = node->kids[0]->rank;
     node->cellidx = id++;
   } else {
     cedr_throw_if(node->rank == my_rank && (node->cellidx < 0 || node->cellidx >= id),
@@ -516,11 +516,22 @@ void QLT<ES>::MetaData::init (const MetaDataBuilder& mdb) {
 }
 
 template <typename ES>
-void QLT<ES>::BulkData::init (const MetaData& md, const Int& nslots) {
-  l2r_data_ = RealList("QLT l2r_data", md.a_h.prob2bl2r[md.nprobtypes]*nslots);
-  r2l_data_ = RealList("QLT r2l_data", md.a_h.prob2br2l[md.nprobtypes]*nslots);
+void QLT<ES>::BulkData::init (const size_t& l2r_sz, const size_t& r2l_sz) {
+  l2r_data_ = RealList("QLT l2r_data", l2r_sz);
+  r2l_data_ = RealList("QLT r2l_data", r2l_sz);
   l2r_data = l2r_data_;
   r2l_data = r2l_data_;
+  inited_ = true;
+}
+
+template <typename ES>
+void QLT<ES>::BulkData::init (Real* buf1, const size_t& l2r_sz,
+                              Real* buf2, const size_t& r2l_sz) {
+  l2r_data_ = RealList(buf1, l2r_sz);
+  r2l_data_ = RealList(buf2, r2l_sz);
+  l2r_data = l2r_data_;
+  r2l_data = r2l_data_;
+  inited_ = true;
 }
 
 template <typename ES>
@@ -575,7 +586,10 @@ void QLT<ES>::init_ordinals () {
 }
 
 template <typename ES>
-QLT<ES>::QLT (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree) {
+QLT<ES>::QLT (const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree,
+              Options options)
+  : CDR(options)
+{
   init(p, ncells, tree);
   cedr_throw_if(nlclcells() == 0, "QLT does not support 0 cells on a rank.");
 }
@@ -633,7 +647,28 @@ template <typename ES>
 void QLT<ES>::end_tracer_declarations () {
   md_.init(*mdb_);
   mdb_ = nullptr;
-  bd_.init(md_, ns_->nslots);
+}
+
+template <typename ES>
+void QLT<ES>::get_buffers_sizes (size_t& buf1, size_t& buf2) {
+  const auto nslots = ns_->nslots;
+  buf1 = md_.a_h.prob2bl2r[md_.nprobtypes]*nslots;
+  buf2 = md_.a_h.prob2br2l[md_.nprobtypes]*nslots;
+}
+
+template <typename ES>
+void QLT<ES>::set_buffers (Real* buf1, Real* buf2) {
+  size_t l2r_sz, r2l_sz;
+  get_buffers_sizes(l2r_sz, r2l_sz);
+  bd_.init(buf1, l2r_sz, buf2, r2l_sz);
+}
+
+template <typename ES>
+void QLT<ES>::finish_setup () {
+  if (bd_.inited()) return;
+  size_t l2r_sz, r2l_sz;
+  get_buffers_sizes(l2r_sz, r2l_sz);
+  bd_.init(l2r_sz, r2l_sz);
 }
 
 template <typename ES>
@@ -829,7 +864,8 @@ void r2l_solve_qp_solve_node_problem (
   const impl::NodeSets::Node& n,
   const impl::NodeSets::Node& k0, const impl::NodeSets::Node& k1,
   const Int& l2rndps, const Int& r2lndps,
-  const Int& l2rbdi, const Int& r2lbdi)
+  const Int& l2rbdi, const Int& r2lbdi,
+  const bool prefer_mass_con_to_bounds)
 {
   impl::solve_node_problem(
     problem_type,
@@ -841,12 +877,15 @@ void r2l_solve_qp_solve_node_problem (
      r2l_data(k0.offset*r2lndps + r2lbdi),
      l2r_data(k1.offset*l2rndps),
     &l2r_data(k1.offset*l2rndps + l2rbdi),
-     r2l_data(k1.offset*r2lndps + r2lbdi));
+     r2l_data(k1.offset*r2lndps + r2lbdi),
+    prefer_mass_con_to_bounds);
 }
 
 template <typename ES> void QLT<ES>
 ::r2l_solve_qp (const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const {
   Timer::start(Timer::snp);
+  const bool prefer_mass_con_to_bounds =
+    options_.prefer_numerical_mass_conservation_to_numerical_bounds;
   if (cedr::impl::OnGpu<ES>::value) {
     const auto d = *nsdd_;
     const auto l2r_data = bd_.l2r_data;
@@ -880,7 +919,7 @@ template <typename ES> void QLT<ES>
       }
       r2l_solve_qp_solve_node_problem(
         l2r_data, r2l_data, problem_type, n, d.node(n.kids[0]), d.node(n.kids[1]),
-        l2rndps, r2lndps, l2rbdi, r2lbdi);
+        l2rndps, r2lndps, l2rbdi, r2lbdi, prefer_mass_con_to_bounds);
     };
     Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, N), solve_qp);
     Kokkos::fence();
@@ -914,7 +953,8 @@ template <typename ES> void QLT<ES>
           }
           r2l_solve_qp_solve_node_problem(
             bd_.l2r_data, bd_.r2l_data, problem_type, *n, *ns_->node_h(n->kids[0]),
-            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi);
+            *ns_->node_h(n->kids[1]), l2rndps, r2lndps, l2rbdi, r2lbdi,
+            prefer_mass_con_to_bounds);
         }
       }
     }
@@ -933,6 +973,7 @@ template <typename ES> void QLT<ES>
 
 template <typename ES>
 void QLT<ES>::run () {
+  cedr_assert(bd_.inited());
   Timer::start(Timer::qltrunl2r);
   // Number of data per slot.
   const Int l2rndps = md_.a_h.prob2bl2r[md_.nprobtypes];
@@ -962,9 +1003,10 @@ public:
   typedef QLT<Kokkos::DefaultExecutionSpace> QLTT;
 
   TestQLT (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
-           const Int& ncells, const bool verbose=false)
-    : TestRandomized("QLT", p, ncells, verbose),
-      qlt_(p, ncells, tree), tree_(tree)
+           const Int& ncells, const bool external_memory, const bool verbose,
+           CDR::Options options)
+    : TestRandomized("QLT", p, ncells, verbose, options),
+      qlt_(p, ncells, tree, options), tree_(tree), external_memory_(external_memory)
   {
     if (verbose) qlt_.print(std::cout);
     init();
@@ -973,6 +1015,8 @@ public:
 private:
   QLTT qlt_;
   tree::Node::Ptr tree_;
+  bool external_memory_;
+  typename QLTT::RealList buf1_, buf2_;
 
   CDR& get_cdr () override { return qlt_; }
 
@@ -1007,6 +1051,14 @@ private:
     for (const auto& t : tracers_)
       qlt_.declare_tracer(t.problem_type, 0);
     qlt_.end_tracer_declarations();
+    if (external_memory_) {
+      size_t l2r_sz, r2l_sz;
+      qlt_.get_buffers_sizes(l2r_sz, r2l_sz);
+      buf1_ = typename QLTT::RealList("buf1", l2r_sz);
+      buf2_ = typename QLTT::RealList("buf2", r2l_sz);
+      qlt_.set_buffers(buf1_.data(), buf2_.data());
+    }
+    qlt_.finish_setup();
     cedr_assert(qlt_.get_num_tracers() == static_cast<Int>(tracers_.size()));
     for (size_t i = 0; i < tracers_.size(); ++i) {
       const auto pt = qlt_.get_problem_type(i);
@@ -1036,8 +1088,13 @@ private:
 // Test all QLT variations and situations.
 Int test_qlt (const Parallel::Ptr& p, const tree::Node::Ptr& tree,
               const Int& ncells, const Int nrepeat,
-              const bool write, const bool verbose) {
-  return TestQLT(p, tree, ncells, verbose).run<TestQLT::QLTT>(nrepeat, write);
+              const bool write, const bool external_memory,
+              const bool prefer_mass_con_to_bounds, const bool verbose) {
+  CDR::Options options;
+  options.prefer_numerical_mass_conservation_to_numerical_bounds =
+    prefer_mass_con_to_bounds;
+  return TestQLT(p, tree, ncells, external_memory, verbose, options)
+    .run<TestQLT::QLTT>(nrepeat, write);
 }
 } // namespace test
 
@@ -1194,19 +1251,26 @@ Int unittest_QLT (const Parallel::Ptr& p, const bool write_requested=false) {
   const Mesh::ParallelDecomp::Enum dists[] = { Mesh::ParallelDecomp::contiguous,
                                                Mesh::ParallelDecomp::pseudorandom };
   Int nerr = 0;
-  for (size_t is = 0, islim = sizeof(szs)/sizeof(*szs); is < islim; ++is)
-    for (size_t id = 0, idlim = sizeof(dists)/sizeof(*dists); id < idlim; ++id)
-    for (bool imbalanced: {false, true}) {
-      if (p->amroot()) {
-        std::cout << " (" << szs[is] << ", " << id << ", " << imbalanced << ")";
-        std::cout.flush();
+  for (size_t is = 0, islim = sizeof(szs)/sizeof(*szs); is < islim; ++is) {
+    for (size_t id = 0, idlim = sizeof(dists)/sizeof(*dists); id < idlim; ++id) {
+      for (bool imbalanced : {false, true}) {
+        for (bool prefer_mass_con_to_bounds : {false, true}) {
+          const auto external_memory = imbalanced;
+          if (p->amroot()) {
+            std::cout << " (" << szs[is] << ", " << id << ", " << imbalanced << ", "
+                      << prefer_mass_con_to_bounds << ")";
+            std::cout.flush();
+          }
+          Mesh m(szs[is], p, dists[id]);
+          tree::Node::Ptr tree = make_tree(m, imbalanced);
+          const bool write = (write_requested && m.ncell() < 3000 &&
+                              is == islim-1 && id == idlim-1);
+          nerr += test::test_qlt(p, tree, m.ncell(), 1, write, external_memory,
+                                 prefer_mass_con_to_bounds, false);
+        }
       }
-      Mesh m(szs[is], p, dists[id]);
-      tree::Node::Ptr tree = make_tree(m, imbalanced);
-      const bool write = (write_requested && m.ncell() < 3000 &&
-                          is == islim-1 && id == idlim-1);
-      nerr += test::test_qlt(p, tree, m.ncell(), 1, write);
     }
+  }
   return nerr;
 }
 
@@ -1238,7 +1302,7 @@ Int run_unit_and_randomized_tests (const Parallel::Ptr& p, const Input& in) {
     Timer::start(Timer::total); Timer::start(Timer::tree);
     tree::Node::Ptr tree = make_tree(m, false);
     Timer::stop(Timer::tree);
-    test::test_qlt(p, tree, in.ncells, in.nrepeat, false, in.verbose);
+    test::test_qlt(p, tree, in.ncells, in.nrepeat, false, false, false, in.verbose);
     Timer::stop(Timer::total);
     if (p->amroot()) Timer::print();
   }

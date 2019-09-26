@@ -24,7 +24,7 @@ typedef double Real;
 // One can solve a subset of these.
 //   If !conserve, then the CDR does not alter the tracer mass, but it does not
 // correct for any failure in mass conservation in the field given to it.
-//   If consistent but !shapepreserve, the the CDR solves the dynamic range
+//   If consistent but !shapepreserve, then the CDR solves the dynamic range
 // preservation problem rather than the local bound preservation problem.
 struct ProblemType {
   enum : Int {
