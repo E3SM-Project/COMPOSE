@@ -139,6 +139,12 @@ void level_schedule_and_collect (
     if (kid_needs_ns_node) make_ns_node = true;
   }
   ++level;
+  if (node->level >= 0) {
+    // The caller built only partial trees and so must provide the
+    // level.
+    level = node->level;
+    cedr_assert(level < static_cast<Int>(ns.levels.size()));
+  }
   // Is parent node needed for isend?
   const bool node_is_owned = node->rank == my_rank;
   need_parent_ns_node = node_is_owned;
@@ -150,7 +156,7 @@ void level_schedule_and_collect (
     node->reserved = ns_node_idx;
     NodeSets::Node* ns_node = ns.node_h(ns_node_idx);
     ns_node->rank = node->rank;
-    ns_node->id = node->cellidx;
+    if (node->nkids == 0) ns_node->id = node->cellidx;
     if (node_is_owned) {
       // If this node is owned, it needs to have information about all kids.
       ns_node->nkids = node->nkids;
@@ -290,7 +296,12 @@ NodeSets::ConstPtr analyze (const Parallel::Ptr& p, const Int& ncells,
   const auto nodesets = std::make_shared<NodeSets>();
   cedr_assert( ! tree->parent);
   Int id = ncells;
-  const Int depth = init_tree(p->rank(), tree, id);
+  Int depth = init_tree(p->rank(), tree, id);
+  if (tree->level >= 0) {
+    // If level is provided, don't trust depth from init_tree. Partial trees can
+    // make depth too small.
+    depth = tree->level + 1;
+  }
   nodesets->levels.resize(depth);
   level_schedule_and_collect(*nodesets, p->rank(), tree);
   consolidate(*nodesets);

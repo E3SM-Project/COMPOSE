@@ -33,7 +33,7 @@ struct NodeSets {
     // Rank of the node. If the node is in a level, then its rank is my rank. If
     // it's not in a level, then it is a comm partner of a node on this rank.
     Int rank;
-    // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
+    // cellidx if leaf node, ie, if nkids == 0; otherwise, undefined.
     Int id;
     // This node's parent, a comm partner, if such a partner is required.
     Int parent;
@@ -131,7 +131,10 @@ struct Node {
   Int nkids;          // 0 at leaf, 1 or 2 otherwise.
   Node::Ptr kids[2];
   Int reserved;       // For internal use.
-  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1) {}
+  Int level;          // If providing only partial trees, set level to
+                      // the level of this node, with a leaf node at
+                      // level 0.
+  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1), level(-1) {}
 };
 
 // Utility to make a tree over a 1D mesh. For testing, it can be useful to
