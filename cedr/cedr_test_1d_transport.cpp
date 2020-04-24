@@ -289,6 +289,7 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
       cdr->declare_tracer(cedr::ProblemType::conserve |
                           cedr::ProblemType::shapepreserve, 0);
     cdr->end_tracer_declarations();
+    cdr->finish_setup();
     for (Int i = 0; i < in.ncells; ++i)
       cdr->set_rhom(i, 0, p.area(i));
     cdr->print(std::cout);

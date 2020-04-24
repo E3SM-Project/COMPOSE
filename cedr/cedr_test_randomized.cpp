@@ -56,7 +56,7 @@ void TestRandomized::generate_rho (Values& v) {
   auto r = v.rhom();
   const Int n = v.ncells();
   for (Int i = 0; i < n; ++i)
-    r[i] = 0.5 + 1.5*urand();
+    r[i] = 0.5*(1 + urand());
 }
 
 void TestRandomized::generate_Q (const Tracer& t, Values& v) {
@@ -294,7 +294,12 @@ Int TestRandomized
 ::check (const std::string& cdr_name, const mpi::Parallel& p,
          const std::vector<Tracer>& ts, const Values& v) {
   static const bool details = true;
-  static const Real ulp3 = 3*std::numeric_limits<Real>::epsilon();
+  static const Real eps = std::numeric_limits<Real>::epsilon();
+  static const Real ulp3 = 3*eps;
+  const auto prefer_mass_con_to_bounds =
+    options_.prefer_numerical_mass_conservation_to_numerical_bounds;
+  const Real lv_tol = prefer_mass_con_to_bounds ? 100*eps : 0;
+  const Real safety_tol = prefer_mass_con_to_bounds ? 100*eps : ulp3;
   Int nerr = 0;
   std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
   std::vector<Int> t_ok(ts.size(), 1), local_violated(ts.size(), 0);
@@ -313,7 +318,7 @@ Int TestRandomized
     for (Int i = 0; i < n; ++i) {
       const bool lv = (nonneg_only ?
                        Qm[i] < 0 :
-                       Qm[i] < Qm_min[i] || Qm[i] > Qm_max[i]);
+                       Qm[i] < Qm_min[i] - lv_tol || Qm[i] > Qm_max[i] + lv_tol);
       if (lv) local_violated[ti] = 1;
       if ( ! safe_only && lv) {
         // If this fails at ~ machine eps, check r2l_nl_adjust_bounds code in
@@ -355,7 +360,7 @@ Int TestRandomized
         * Qm_max = v.Qm_max(t.idx);
       const Real q_min = nonneg_only ? 0 : q_min_gbl[ti], q_max = q_max_gbl[ti];
       for (Int i = 0; i < n; ++i) {
-        const Real delta = (q_max - q_min)*ulp3;
+        const Real delta = (q_max - q_min)*safety_tol;
         const bool lv = (nonneg_only ?
                          Qm[i] < -ulp3 :
                          (Qm[i] < q_min*rhom[i] - delta ||
@@ -409,8 +414,10 @@ Int TestRandomized
   
 TestRandomized
 ::TestRandomized (const std::string& name, const mpi::Parallel::Ptr& p,
-                  const Int& ncells, const bool verbose)
-  : cdr_name_(name), p_(p), ncells_(ncells), write_inited_(false)
+                  const Int& ncells, const bool verbose,
+                  const CDR::Options options)
+  : cdr_name_(name), options_(options), p_(p), ncells_(ncells),
+    write_inited_(false)
 {}
 
 void TestRandomized::init () {

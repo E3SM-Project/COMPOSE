@@ -14,7 +14,8 @@ namespace test {
 class TestRandomized {
 public:
   TestRandomized(const std::string& cdr_name, const mpi::Parallel::Ptr& p,
-                 const Int& ncells, const bool verbose = false);
+                 const Int& ncells, const bool verbose = false,
+                 const CDR::Options options = CDR::Options());
 
   // The subclass should call this, probably in its constructor.
   void init();
@@ -24,6 +25,7 @@ public:
 
 private:
   const std::string cdr_name_;
+  const CDR::Options options_;
 
 protected:
   struct Tracer {
@@ -141,8 +143,8 @@ private:
   static void generate_Q(const Tracer& t, Values& v);
   static void permute_Q(const Tracer& t, Values& v);
   static std::string get_tracer_name(const Tracer& t);
-  static Int check(const std::string& cdr_name, const mpi::Parallel& p,
-                   const std::vector<Tracer>& ts, const Values& v);
+  Int check(const std::string& cdr_name, const mpi::Parallel& p,
+            const std::vector<Tracer>& ts, const Values& v);
 };
 
 } // namespace test

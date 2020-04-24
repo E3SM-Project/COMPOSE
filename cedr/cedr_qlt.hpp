@@ -33,7 +33,7 @@ struct NodeSets {
     // Rank of the node. If the node is in a level, then its rank is my rank. If
     // it's not in a level, then it is a comm partner of a node on this rank.
     Int rank;
-    // Globally unique identifier; cellidx if leaf node, ie, if nkids == 0.
+    // cellidx if leaf node, ie, if nkids == 0; otherwise, undefined.
     Int id;
     // This node's parent, a comm partner, if such a partner is required.
     Int parent;
@@ -131,7 +131,10 @@ struct Node {
   Int nkids;          // 0 at leaf, 1 or 2 otherwise.
   Node::Ptr kids[2];
   Int reserved;       // For internal use.
-  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1) {}
+  Int level;          // If providing only partial trees, set level to
+                      // the level of this node, with a leaf node at
+                      // level 0.
+  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1), level(-1) {}
 };
 
 // Utility to make a tree over a 1D mesh. For testing, it can be useful to
@@ -146,11 +149,13 @@ public:
   typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
   typedef QLT<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
+  typedef Kokkos::View<Real*, Device> RealList;
   
   // Set up QLT topology and communication data structures based on a tree. Both
   // ncells and tree refer to the global mesh, not just this processor's
   // part. The tree must be identical across ranks.
-  QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree);
+  QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree,
+      CDR::Options options = Options());
 
   void print(std::ostream& os) const override;
 
@@ -171,6 +176,12 @@ public:
   void declare_tracer(int problem_type, const Int& rhomidx) override;
 
   void end_tracer_declarations() override;
+
+  void get_buffers_sizes(size_t& buf1, size_t& buf2) override;
+
+  void set_buffers(Real* buf1, Real* buf2) override;
+
+  void finish_setup() override;
 
   int get_problem_type(const Int& tracer_idx) const override;
 
@@ -273,14 +284,20 @@ PROTECTED_CUDA:
   };
 
   struct BulkData {
-    typedef Kokkos::View<Real*, Device> RealList;
     typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
 
     UnmanagedRealList l2r_data, r2l_data;
 
-    void init(const MetaData& md, const Int& nslots);
+    BulkData () : inited_(false) {}
+
+    bool inited () const { return inited_; }
+
+    void init(const size_t& l2r_sz, const size_t& r2l_sz);
+    void init(Real* l2r_buf, const size_t& l2r_sz,
+              Real* r2l_buf, const size_t& r2l_sz);
 
   private:
+    bool inited_;
     RealList l2r_data_, r2l_data_;
   };
 
@@ -327,12 +344,16 @@ struct Input {
 Int run_unit_and_randomized_tests(const Parallel::Ptr& p, const Input& in);
 
 Int test_qlt(const Parallel::Ptr& p, const tree::Node::Ptr& tree, const Int& ncells,
-             const Int nrepeat = 1,
+             const Int nrepeat,
              // Diagnostic output for dev and illustration purposes. To be
              // clear, no QLT unit test requires output to be checked; each
              // checks in-memory data and returns a failure count.
-             const bool write = false,
-             const bool verbose = false);
+             const bool write,
+             // Provide memory to QLT for its buffers.
+             const bool external_memory,
+             // Set CDR::Options.prefer_numerical_mass_conservation_to_numerical_bounds.
+             const bool prefer_mass_con_to_bounds,
+             const bool verbose);
 } // namespace test
 } // namespace qlt
 } // namespace cedr
