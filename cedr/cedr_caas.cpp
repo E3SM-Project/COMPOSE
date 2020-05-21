@@ -75,7 +75,8 @@ void CAAS<ES>::get_buffers_sizes (size_t& buf1, size_t& buf2, size_t& buf3) {
   const Int e = need_conserve_ ? 1 : 0;
   const auto nslots = 4*probs_.size();
   buf1 = nlclcells_ * ((3+e)*probs_.size() + 1);
-  buf2 = nslots*(user_reducer_ ? nlclcells_ : 1);
+  cedr_assert( ! user_reducer_ || nlclcells_ % user_reducer_->n_accum_in_place() == 0);
+  buf2 = nslots*(user_reducer_ ? (nlclcells_ / user_reducer_->n_accum_in_place()) : 1);
   buf3 = nslots;
 }
 
@@ -146,24 +147,37 @@ void CAAS<ES>::reduce_locally () {
   const auto send = send_;
   const auto d = d_;
   if (user_reduces) {
+    const Int n_accum_in_place = user_reducer_->n_accum_in_place();
+    const Int nlclaccum = nlclcells / n_accum_in_place;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const Int& j) {
-      const auto k = j / nlclcells;
-      const auto i = j % nlclcells;
+      const auto k = j / nlclaccum;
+      const auto bi = j % nlclaccum;
       const auto os = (k+1)*nlclcells;
-      Real Qm_clip, Qm_term;
-      calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
-      d(os+i) = Qm_clip;
-      send(nlclcells*      k  + i) = Qm_clip;
-      send(nlclcells*(nt + k) + i) = Qm_term;
+      Real accum_clip = 0, accum_term = 0;
+      for (Int ai = 0; ai < n_accum_in_place; ++ai) {
+        const Int i = n_accum_in_place*bi + ai;
+        Real Qm_clip, Qm_term;
+        calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
+        d(os + i) = Qm_clip;
+        accum_clip += Qm_clip;
+        accum_term += Qm_term;
+      }
+      send(nlclaccum*      k  + bi) = accum_clip;
+      send(nlclaccum*(nt + k) + bi) = accum_term;
     };
-    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclcells), calc_Qm_clip);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclaccum), calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
-      const auto k = 2*nt + j / nlclcells;
-      const auto i = j % nlclcells;
+      const auto k = 2*nt + j / nlclaccum;
+      const auto bi = j % nlclaccum;
       const auto os = (k-nt+1)*nlclcells;
-      send(nlclcells*k + i) = d(os+i);
+      Real accum_ext = 0;
+      for (Int ai = 0; ai < n_accum_in_place; ++ai) {
+        const Int i = n_accum_in_place*bi + ai;
+        accum_ext += d(os + i);
+      }
+      send(nlclaccum*k + bi) = accum_ext;
     };
-    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclcells), set_Qm_minmax);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclaccum), set_Qm_minmax);
   } else {
     using ESU = cedr::impl::ExeSpaceUtils<ES>;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const typename ESU::Member& t) {
@@ -257,7 +271,8 @@ void CAAS<ES>::run () {
   const bool user_reduces = user_reducer_ != nullptr;
   if (user_reduces)
     (*user_reducer_)(*p_, send_.data(), recv_.data(),
-                     nlclcells_, recv_.size(), MPI_SUM);
+                     nlclcells_ / user_reducer_->n_accum_in_place(),
+                     recv_.size(), MPI_SUM);
   else
     reduce_globally();
   finish_locally();
@@ -268,6 +283,10 @@ struct TestCAAS : public cedr::test::TestRandomized {
   typedef CAAS<Kokkos::DefaultExecutionSpace> CAAST;
 
   struct TestAllReducer : public CAAST::UserAllReducer {
+    TestAllReducer (const Int n_accum) : n_(n_accum) {}
+
+    Int n_accum_in_place () const override { return n_; }
+
     int operator() (const mpi::Parallel& p, Real* sendbuf, Real* rcvbuf,
                     int nlcl, int count, MPI_Op op) const override {
       Kokkos::View<Real*> s(sendbuf, nlcl*count), r(rcvbuf, count);
@@ -285,6 +304,9 @@ struct TestCAAS : public cedr::test::TestRandomized {
       Kokkos::deep_copy(r, r_h);
       return err;
     }
+
+  private:
+    Int n_;
   };
 
   TestCAAS (const mpi::Parallel::Ptr& p, const Int& ncells,
@@ -297,9 +319,16 @@ struct TestCAAS : public cedr::test::TestRandomized {
     nlclcells_ = ncells / np;
     const Int todo = ncells - nlclcells_ * np;
     if (rank < todo) ++nlclcells_;
-    caas_ = std::make_shared<CAAST>(
-      p, nlclcells_,
-      use_own_reducer ? std::make_shared<TestAllReducer>() : nullptr);
+    CAAST::UserAllReducer::Ptr reducer;
+    if (use_own_reducer) {
+      // Although it doesn't make sense to do this in practice, nothing prevents
+      // us from using different n_accum_in_place values in different ranks. So
+      // just compute a local value.
+      const Int n_accum = (nlclcells_ % 3 == 0 ? 3 :
+                           nlclcells_ % 2 == 0 ? 2 : 1);
+      reducer = std::make_shared<TestAllReducer>(n_accum);
+    }
+    caas_ = std::make_shared<CAAST>( p, nlclcells_, reducer);
     init();
   }
 
