@@ -293,9 +293,9 @@ struct TestCAAS : public cedr::test::TestRandomized {
       const auto s_h = Kokkos::create_mirror_view(s);
       Kokkos::deep_copy(s_h, s);
       const auto r_h = Kokkos::create_mirror_view(r);
-      for (int i = 1; i < nlcl; ++i)
-        s_h(0) += s_h(i);
-      for (int k = 1; k < count; ++k) {
+      for (int k = 0; k < count; ++k) {
+        // When k == 0, s_h(0:nlcl-1) is summed. Then s_h(1:nlcl-1) is
+        // free to be overwritten.
         s_h(k) = s_h(nlcl*k);
         for (int i = 1; i < nlcl; ++i)
           s_h(k) += s_h(nlcl*k + i);
