@@ -266,8 +266,8 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
 
   Problem1D p(in.ncells, false /* nonuniform_mesh */ );
 
-  auto tree = qlt::tree::make_tree_over_1d_mesh(parallel, in.ncells,
-                                                false /* imbalanced */);
+  auto tree = tree::make_tree_over_1d_mesh(parallel, in.ncells,
+                                           false /* imbalanced */);
   typedef qlt::QLT<Kokkos::DefaultHostExecutionSpace> QLTT;
   QLTT qltnn(parallel, in.ncells, tree), qlt(parallel, in.ncells, tree);
 

@@ -65,10 +65,11 @@ set (SOURCES
   cedr/cedr_local.cpp
   cedr/cedr_mpi.cpp
   cedr/cedr_qlt.cpp
+  cedr/cedr_tree.cpp
+  cedr/cedr_util.cpp
   cedr/cedr_test.cpp
   cedr/cedr_test_1d_transport.cpp
-  cedr/cedr_test_randomized.cpp
-  cedr/cedr_util.cpp)
+  cedr/cedr_test_randomized.cpp)
 
 set (HEADERS
   cedr/cedr.hpp

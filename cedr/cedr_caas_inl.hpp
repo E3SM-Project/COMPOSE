@@ -26,7 +26,7 @@ void CAAS<ES>
   cedr_kernel_assert(lclcellidx >= 0 && lclcellidx < nlclcells_);
   cedr_kernel_assert(tracer_idx >= 0 && tracer_idx < probs_.extent_int(0));
   const Int nt = probs_.size();
-  d_((1 +               tracer_idx)*nlclcells_ + lclcellidx) = Qm;
+  d_((1 +        tracer_idx)*nlclcells_ + lclcellidx) = Qm;
   d_((1 +   nt + tracer_idx)*nlclcells_ + lclcellidx) = Qm_min;
   d_((1 + 2*nt + tracer_idx)*nlclcells_ + lclcellidx) = Qm_max;
   if (need_conserve_)

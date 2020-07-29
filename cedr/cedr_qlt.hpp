@@ -15,133 +15,13 @@
 
 #include "cedr_cdr.hpp"
 #include "cedr_util.hpp"
+#include "cedr_tree.hpp"
 
 namespace cedr {
 // QLT: Quasi-local tree-based non-iterative tracer density reconstructor for
 //      mass conservation, shape preservation, and tracer consistency.
 namespace qlt {
 using cedr::mpi::Parallel;
-
-namespace impl {
-struct NodeSets {
-  typedef std::shared_ptr<const NodeSets> ConstPtr;
-  
-  enum : int { mpitag = 42 };
-
-  // A node in the tree that is relevant to this rank.
-  struct Node {
-    // Rank of the node. If the node is in a level, then its rank is my rank. If
-    // it's not in a level, then it is a comm partner of a node on this rank.
-    Int rank;
-    // cellidx if leaf node, ie, if nkids == 0; otherwise, undefined.
-    Int id;
-    // This node's parent, a comm partner, if such a partner is required.
-    Int parent;
-    // This node's kids, comm partners, if such partners are required. Parent
-    // and kid nodes are pruned relative to the full tree over the mesh to
-    // contain just the nodes that matter to this rank.
-    Int nkids;
-    Int kids[2];
-    // Offset factor into bulk data. An offset is a unit; actual buffer sizes
-    // are multiples of this unit.
-    Int offset;
-
-    KOKKOS_FUNCTION Node () : rank(-1), id(-1), parent(-1), nkids(0), offset(-1) {}
-  };
-
-  // A level in the level schedule that is constructed to orchestrate
-  // communication. A node in a level depends only on nodes in lower-numbered
-  // levels (l2r) or higher-numbered (r2l).
-  //
-  // The communication patterns are as follows:
-  //   > l2r
-  //   MPI rcv into kids
-  //   sum into node
-  //   MPI send from node
-  //   > r2l
-  //   MPI rcv into node
-  //   solve QP for kids
-  //   MPI send from kids
-  struct Level {
-    struct MPIMetaData {
-      Int rank;   // Rank of comm partner.
-      Int offset; // Offset to start of buffer for this comm.
-      Int size;   // Size of this buffer in units of offsets.
-    };
-    
-    // The nodes in the level.
-    std::vector<Int> nodes;
-    // MPI information for this level.
-    std::vector<MPIMetaData> me, kids;
-    mutable std::vector<mpi::Request> me_send_req, me_recv_req, kids_req;
-  };
-  
-  // Levels. nodes[0] is level 0, the leaf level.
-  std::vector<Level> levels;
-  // Number of data slots this rank needs. Each node owned by this rank, plus
-  // kids on other ranks, have an associated slot.
-  Int nslots;
-  
-  // Allocate a node. The list node_mem_ is the mechanism for memory ownership;
-  // node_mem_ isn't used for anything other than owning nodes.
-  Int alloc () {
-    const Int idx = node_mem_.size();
-    node_mem_.push_back(Node());
-    return idx;
-  }
-
-  Int nnode () const { return node_mem_.size(); }
-
-  Node* node_h (const Int& idx) {
-    cedr_assert(idx >= 0 && idx < static_cast<Int>(node_mem_.size()));
-    return &node_mem_[idx];
-  }
-  const Node* node_h (const Int& idx) const {
-    return const_cast<NodeSets*>(this)->node_h(idx);
-  }
-
-  void print(std::ostream& os) const;
-  
-private:
-  std::vector<Node> node_mem_;
-};
-
-template <typename ExeSpace>
-struct NodeSetsDeviceData {
-  typedef typename cedr::impl::DeviceType<ExeSpace>::type Device;
-  typedef Kokkos::View<Int*, Device> IntList;
-  typedef Kokkos::View<NodeSets::Node*, Device> NodeList;
-
-  NodeList node;
-  // lvl(lvlptr(l):lvlptr(l+1)-1) is the list of node indices into node for
-  // level l.
-  IntList lvl, lvlptr;
-};
-
-typedef impl::NodeSetsDeviceData<Kokkos::DefaultHostExecutionSpace> NodeSetsHostData;
-} // namespace impl
-
-namespace tree {
-// The caller builds a tree of these nodes to pass to QLT.
-struct Node {
-  typedef std::shared_ptr<Node> Ptr;
-  const Node* parent; // (Can't be a shared_ptr: would be a circular dependency.)
-  Int rank;           // Owning rank.
-  Long cellidx;       // If a leaf, the cell to which this node corresponds.
-  Int nkids;          // 0 at leaf, 1 or 2 otherwise.
-  Node::Ptr kids[2];
-  Int reserved;       // For internal use.
-  Int level;          // If providing only partial trees, set level to
-                      // the level of this node, with a leaf node at
-                      // level 0.
-  Node () : parent(nullptr), rank(-1), cellidx(-1), nkids(0), reserved(-1), level(-1) {}
-};
-
-// Utility to make a tree over a 1D mesh. For testing, it can be useful to
-// create an imbalanced tree.
-Node::Ptr make_tree_over_1d_mesh(const Parallel::Ptr& p, const Int& ncells,
-                                 const bool imbalanced = false);
-} // namespace tree
 
 template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
 class QLT : public cedr::CDR {
@@ -309,10 +189,10 @@ protected:
   /// Pointer data for initialization and host computation.
   Parallel::Ptr p_;
   // Tree and communication topology.
-  std::shared_ptr<const impl::NodeSets> ns_;
+  std::shared_ptr<const tree::NodeSets> ns_;
   // Data extracted from ns_ for use in run() on device.
-  std::shared_ptr<impl::NodeSetsDeviceData<ExeSpace> > nsdd_;
-  std::shared_ptr<impl::NodeSetsHostData> nshd_;
+  std::shared_ptr<tree::NodeSetsDeviceData<ExeSpace> > nsdd_;
+  std::shared_ptr<tree::NodeSetsHostData> nshd_;
   // Globally unique cellidx -> rank-local index.
   typedef std::map<Int,Int> Gci2LciMap;
   std::shared_ptr<Gci2LciMap> gci2lci_;
@@ -325,13 +205,13 @@ protected:
   BulkData bd_;
 
 PRIVATE_CUDA:
-  void l2r_recv(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_recv(const tree::NodeSets::Level& lvl, const Int& l2rndps) const;
   void l2r_combine_kid_data(const Int& lvlidx, const Int& l2rndps) const;
-  void l2r_send_to_parents(const impl::NodeSets::Level& lvl, const Int& l2rndps) const;
+  void l2r_send_to_parents(const tree::NodeSets::Level& lvl, const Int& l2rndps) const;
   void root_compute(const Int& l2rndps, const Int& r2lndps) const;
-  void r2l_recv(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
+  void r2l_recv(const tree::NodeSets::Level& lvl, const Int& r2lndps) const;
   void r2l_solve_qp(const Int& lvlidx, const Int& l2rndps, const Int& r2lndps) const;
-  void r2l_send_to_kids(const impl::NodeSets::Level& lvl, const Int& r2lndps) const;
+  void r2l_send_to_kids(const tree::NodeSets::Level& lvl, const Int& r2lndps) const;
 };
 
 namespace test {
