@@ -64,7 +64,7 @@ struct NodeSets {
     mutable std::vector<mpi::Request> me_send_req, me_recv_req, kids_req;
   };
   
-  // Levels. nodes[0] is level 0, the leaf level.
+  // Levels. levels[0] is level 0, the leaf level.
   std::vector<Level> levels;
   // Number of data slots this rank needs. Each node owned by this rank, plus
   // kids on other ranks, have an associated slot.

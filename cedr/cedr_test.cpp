@@ -3,6 +3,8 @@
 
 #include "cedr_qlt.hpp"
 #include "cedr_caas.hpp"
+#include "cedr_tree.hpp"
+#include "cedr_bfb_tree_allreduce.hpp"
 #include "cedr_mpi.hpp"
 #include "cedr_util.hpp"
 #include "cedr_test.hpp"
@@ -89,8 +91,25 @@ int main (int argc, char** argv) {
     cedr::InputParser inp(argc, argv, p);
     if (p->amroot()) inp.print(std::cout);
     if (inp.qin.unittest) {
-      nerr += cedr::local::unittest();
-      nerr += cedr::caas::test::unittest(p);
+      int ne;
+      ne = cedr::tree::oned::Mesh::unittest(p);
+      if (ne && p->amroot()) std::cerr << "FAIL: cedr::tree::oned::Mesh::unittest()\n";
+      nerr += ne;
+      ne = cedr::tree::oned::unittest(p);
+      if (ne && p->amroot()) std::cerr << "FAIL: tree::oned::test::unittest()\n";
+      nerr += ne;
+      ne = cedr::tree::unittest(p);
+      if (ne && p->amroot()) std::cerr << "FAIL: tree::unittest()\n";
+      nerr += ne;
+      ne = cedr::local::unittest();
+      if (ne && p->amroot()) std::cerr << "FAIL: cedr::local::unittest()\n";
+      nerr += ne;
+      ne = cedr::caas::test::unittest(p);
+      if (ne && p->amroot()) std::cerr << "FAIL: cedr::caas::test::unittest()\n";
+      nerr += ne;
+      ne = cedr::BfbTreeAllReducer<>::unittest(p);
+      if (ne && p->amroot()) std::cerr << "FAIL: cedr::BfbTreeAllReducer<>::unittest()\n";
+      nerr += ne;
     }
     if (inp.qin.unittest || inp.qin.perftest)
       nerr += cedr::qlt::test::run_unit_and_randomized_tests(p, inp.qin);

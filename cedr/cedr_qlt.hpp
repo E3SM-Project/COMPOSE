@@ -32,8 +32,7 @@ public:
   typedef Kokkos::View<Real*, Device> RealList;
   
   // Set up QLT topology and communication data structures based on a tree. Both
-  // ncells and tree refer to the global mesh, not just this processor's
-  // part. The tree must be identical across ranks.
+  // ncells and tree refer to the global mesh, not just this processor's part.
   QLT(const Parallel::Ptr& p, const Int& ncells, const tree::Node::Ptr& tree,
       CDR::Options options = Options());
 

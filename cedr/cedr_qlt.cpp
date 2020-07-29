@@ -772,17 +772,7 @@ namespace test {
 Int run_unit_and_randomized_tests (const Parallel::Ptr& p, const Input& in) {
   Int nerr = 0;
   if (in.unittest) {
-    Int ne;
-    ne = tree::oned::Mesh::unittest(p);
-    if (ne && p->amroot()) std::cerr << "FAIL: Mesh::unittest()\n";
-    nerr += ne;
-    ne = tree::oned::unittest(p);
-    if (ne && p->amroot()) std::cerr << "FAIL: tree::oned::test::unittest()\n";
-    nerr += ne;
-    ne = tree::unittest(p);
-    if (ne && p->amroot()) std::cerr << "FAIL: tree::unittest()\n";
-    nerr += ne;
-    ne = unittest_QLT(p, in.write);
+    Int ne = unittest_QLT(p, in.write);
     if (ne && p->amroot()) std::cerr << "FAIL: tree::oned::unittest_QLT()\n";
     nerr += ne;
     if (p->amroot()) std::cout << "\n";
