@@ -36,7 +36,7 @@ void BfbTreeAllReducer<ES>
   if ( ! buf1) return;
   size_t s1, s2;
   get_host_buffers_sizes(s1, s2);
-  bd_ = RealList(buf1, s1);
+  bd_ = RealListHost(buf1, s1);
 }
 
 template <typename ES>
@@ -48,7 +48,7 @@ void BfbTreeAllReducer<ES>
     cedr_assert(bd_.size() == s1);
     return;
   }
-  bd_ = RealList("bd_", s1);
+  bd_ = RealListHost("bd_", s1);
 }
 
 template <typename ES>
