@@ -53,7 +53,7 @@ void BfbTreeAllReducer<ES>
 
 template <typename ES>
 const Real* BfbTreeAllReducer<ES>
-::get_send_host (const ConstRealList& send) {
+::get_send_host (const ConstRealList& send) const {
   cedr_assert(send.extent_int(0) == nlocal_*nfield_);
   if ( ! impl::OnGpu<ES>::value) return send.data();
   RealListHost m(bd_.data() + ns_->nslots * nfield_, nlocal_*nfield_);
@@ -63,7 +63,7 @@ const Real* BfbTreeAllReducer<ES>
 
 template <typename ES>
 void BfbTreeAllReducer<ES>
-::fill_recv (const RealList& recv) {
+::fill_recv (const RealList& recv) const {
   Real* const buf = impl::OnGpu<ES>::value ? bd_.data() + ns_->nslots * nfield_ : recv.data();
   const Int idx = ns_->levels[0].nodes[0];
   const auto n = ns_->node_h(idx);
@@ -74,13 +74,15 @@ void BfbTreeAllReducer<ES>
 
 template <typename ES>
 void BfbTreeAllReducer<ES>
-::allreduce (const ConstRealList& send, const RealList& recv, const bool transpose) {
+::allreduce (const ConstRealList& send, const RealList& recv, const bool transpose) const {
   const auto mpitag = tree::NodeSets::mpitag;
   const auto& ns = *ns_;
   const auto nf = nfield_;
   cedr_assert(ns.levels[0].nodes.size() == static_cast<size_t>(nlocal_));
 
-  if ( ! bd_.size()) finish_setup();
+  // We want to be behaviorally const but still permit lazy finish_setup.
+  if ( ! bd_.size()) const_cast<Me*>(this)->finish_setup();
+
   const auto buf_host = get_send_host(send);
 
   // Fill leaf data.

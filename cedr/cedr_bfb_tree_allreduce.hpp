@@ -38,7 +38,7 @@ struct BfbTreeAllReducer {
   // otherwise, where nlocal is the number of leaf nodes on this rank. send and
   // recv can point to the same memory.
   void allreduce(const ConstRealList& send, const RealList& recv,
-                 const bool transpose = false);
+                 const bool transpose = false) const;
 
   static Int unittest(const mpi::Parallel::Ptr& p);
 
@@ -46,12 +46,12 @@ private:
   mpi::Parallel::Ptr p_;
   Int nlocal_, nfield_;
   std::shared_ptr<const tree::NodeSets> ns_;
-  RealListHost bd_;
+  mutable RealListHost bd_;
 
   void init(const mpi::Parallel::Ptr& p, const tree::Node::Ptr& tree,
             const Int nleaf, const Int nfield);
-  const Real* get_send_host(const ConstRealList& send);
-  void fill_recv(const RealList& recv);
+  const Real* get_send_host(const ConstRealList& send) const;
+  void fill_recv(const RealList& recv) const;
 };
 
 } // namespace cedr
