@@ -301,7 +301,7 @@ Int TestRandomized
   const Real lv_tol = prefer_mass_con_to_bounds ? 100*eps : 0;
   const Real safety_tol = prefer_mass_con_to_bounds ? 100*eps : ulp3;
   Int nerr = 0;
-  std::vector<Real> lcl_mass(2*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
+  std::vector<Real> lcl_mass(3*ts.size()), q_min_lcl(ts.size()), q_max_lcl(ts.size());
   std::vector<Int> t_ok(ts.size(), 1), local_violated(ts.size(), 0);
   for (size_t ti = 0; ti < ts.size(); ++ti) {
     const auto& t = ts[ti];
@@ -336,8 +336,13 @@ Int TestRandomized
         t_ok[ti] = false;
         ++nerr;
       }
-      lcl_mass[2*ti    ] += Qm_prev[i];
-      lcl_mass[2*ti + 1] += Qm[i];
+      lcl_mass[3*ti    ] += Qm_prev[i];
+      lcl_mass[3*ti + 1] += Qm[i];
+      // Because the randomized test permits q < 0, in the global mass relative
+      // error we need to be careful to choose a denominator that doesn't have
+      // cancellation of masses from the signs. So accumulate abs as the
+      // denominator.
+      lcl_mass[3*ti + 2] += std::abs(Qm_prev[i]);
       q_min_lcl[ti] = std::min(q_min_lcl[ti], Qm_min[i]/rhom[i]);
       q_max_lcl[ti] = std::max(q_max_lcl[ti], Qm_max[i]/rhom[i]);
     }
@@ -379,7 +384,7 @@ Int TestRandomized
     }
   }
 
-  std::vector<Real> glbl_mass(2*ts.size(), 0);
+  std::vector<Real> glbl_mass(3*ts.size(), 0);
   mpi::reduce(p, lcl_mass.data(), glbl_mass.data(), lcl_mass.size(), MPI_SUM,
               p.root());
   std::vector<Int> t_ok_gbl(ts.size(), 0);
@@ -390,11 +395,12 @@ Int TestRandomized
               local_violated.size(), MPI_MAX, p.root());
 
   if (p.amroot()) {
-    const Real tol = 1e3*std::numeric_limits<Real>::epsilon();
+    const Real tol = 1e2*std::numeric_limits<Real>::epsilon();
     for (size_t ti = 0; ti < ts.size(); ++ti) {
       // Check mass conservation.
-      const Real desired_mass = glbl_mass[2*ti], actual_mass = glbl_mass[2*ti+1],
-        rd = cedr::util::reldif(desired_mass, actual_mass);
+      const Real desired_mass = glbl_mass[3*ti], actual_mass = glbl_mass[3*ti+1],
+        den_mass = glbl_mass[3*ti+2],
+        rd = std::abs(actual_mass - desired_mass)/std::abs(den_mass);
       const bool mass_failed = rd > tol;
       if (mass_failed) {
         ++nerr;
@@ -404,7 +410,6 @@ Int TestRandomized
         std::cout << "FAIL " << cdr_name << ": " << ts[ti].str();
         if (mass_failed) std::cout << " mass re " << rd;
         std::cout << "\n";
-        //pr(puf(desired_mass) pu(actual_mass));
       }
     }
   }
