@@ -28,55 +28,6 @@ Int GllOffsetNodal::max_degree (const Int& np) const {
   return degrees[np];
 }
 
-static Real normalize_x (const Real* gll_x, const Real& x) {
-  const Real x0 = gll_x[1];
-  return (x - x0) / (1 - x0);
-}
-
-static void outer_eval (const Real* gll_x, const Real& x, Real v[4]) {
-  const Real
-    xbar = normalize_x(gll_x, gll_x[2]),
-    ooxbar = 1 / xbar,
-    ybar = 1 / (xbar - 1),
-    xn = normalize_x(gll_x, x);
-  v[0] = 0;
-  v[1] = 1 + ybar*xn*((1 - ooxbar)*xn + ooxbar - xbar);
-  v[2] = ybar*ooxbar*xn*(xn - 1);
-  v[3] = ybar*xn*(xbar - xn);
-}
-
-#if 0
-static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
-                              Real y[4]) {
-  static constexpr Real
-    alpha = 0.5527864045000416708,
-    v = 0.427*(1 + alpha),
-    x2 = 0.4472135954999579277, // 1/sqrt(5)
-    x3 = 1 - x2,
-    det = x2*x3*(x2 - x3),
-    y2 = alpha,
-    y3 = v,
-    c1 = (x3*y2 - x2*y3)/det,
-    c2 = (-x3*x3*y2 + x2*x2*y3)/det;
-  if (x < x_gll[1] || x > x_gll[2]) {
-    Real y4[4];
-    GLL::eval_lagrange_poly(4, x_gll, x, y4);
-    if (x < x_gll[1]) {
-      outer_eval(x_gll, -x, y);
-      std::swap(y[0], y[3]);
-      std::swap(y[1], y[2]);
-    } else
-      outer_eval(x_gll, x, y);
-    const Real x0 = 1 - std::abs(x);
-    const Real a = (c1*x0 + c2)*x0;
-    for (int i = 0; i < 4; ++i)
-      y[i] = a*y[i] + (1 - a)*y4[i];
-  }
-  else
-    GLL::eval_lagrange_poly(4, x_gll, x, y);
-  return true;
-}
-#else
 static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
                               Real y[4]) {
   static const Real c1 = 0.306;
@@ -94,7 +45,6 @@ static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
     GLL::eval_lagrange_poly(4, x_gll, x, y);
   return true;
 }
-#endif
 
 bool GllOffsetNodal::eval (const Int& np, const Real& x, Real* const v) const {
   const Real* xnode;
@@ -254,13 +204,13 @@ bool UniformOffsetNodal
   case  4: return evalon< 4,2>(xnode, {3,4        }, {0,0        }, x, v);
   case  5: return evalon< 5,2>(xnode, {3,4        }, {0,0        }, x, v);
   case  6: return evalon< 6,3>(xnode, {3,4,6      }, {0,0,0      }, x, v);
-  case  7: return evalon< 7,3>(xnode, {3,4,6      }, {0,0,0      }, x, v);
+  case  7: return evalon< 7,3>(xnode, {3,4,4      }, {0,0,1      }, x, v);
   case  8: return evalon< 8,4>(xnode, {4,4,4,4    }, {0,0,1,2    }, x, v);
   case  9: return evalon< 9,4>(xnode, {4,4,4,4    }, {0,0,1,2    }, x, v);
-  case 10: return evalon<10,5>(xnode, {4,5,4,4,4  }, {0,0,1,2,3  }, x, v);
-  case 11: return evalon<11,5>(xnode, {4,5,4,4,4  }, {0,0,1,2,3  }, x, v);
-  case 12: return evalon<12,6>(xnode, {4,5,5,4,4,4}, {0,0,1,2,3,4}, x, v);
-  case 13: return evalon<13,6>(xnode, {4,5,6,4,4,4}, {0,0,0,2,3,4}, x, v);
+  case 10: return evalon<10,5>(xnode, {4,4,4,4,4  }, {0,0,1,2,3  }, x, v);
+  case 11: return evalon<11,5>(xnode, {4,4,4,4,4  }, {0,0,1,2,3  }, x, v);
+  case 12: return evalon<12,6>(xnode, {4,4,4,4,4,4}, {0,0,1,2,3,4}, x, v);
+  case 13: return evalon<13,6>(xnode, {4,4,4,4,4,4}, {0,0,1,2,3,4}, x, v);
   }
   return false;
 }

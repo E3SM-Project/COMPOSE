@@ -1,0 +1,220 @@
+physgrid.o: physgrid.cpp slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_mesh.hpp slmm_array_tree.hpp \
+ slmm_vis.hpp slmmir_util.hpp slmmir_mesh.hpp slmmir.hpp slmm_util.hpp \
+ slmm_spf.hpp slmmir_physgrid.hpp slmm_nla.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmmir_d2c.hpp
+slmm_accum.o: slmm_accum.cpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_accum.hpp
+slmm_array_tree.o: slmm_array_tree.cpp slmm_array_tree.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp
+slmm_basis.o: slmm_basis.cpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_gll.hpp slmm_islet.hpp \
+ slmm_basis_reduced.hpp slmm_util.hpp
+slmm_basis_reduced.o: slmm_basis_reduced.cpp slmm_basis_reduced.hpp \
+ slmm_islet.hpp slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp
+slmm_c_compat.o: slmm_c_compat.cpp slmm_c_compat.hpp slmm_spf.hpp \
+ slmm_defs.hpp ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_gll.hpp slmm_basis.hpp \
+ slmm_mesh.hpp slmm_array_tree.hpp slmm_util.hpp
+slmm_fit_extremum.o: slmm_fit_extremum.cpp slmm_fit_extremum.hpp \
+ slmm_defs.hpp ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_nla.hpp slmm_util.hpp \
+ slmm_gll.hpp slmm_basis.hpp ../../siqk/siqk_geometry.hpp
+slmm_gallery.o: slmm_gallery.cpp slmm_gallery.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_time_int.hpp slmm_util.hpp
+slmm_io.o: slmm_io.cpp slmm_io.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_util.hpp
+slmmir.o: slmmir.cpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_mesh.hpp slmm_array_tree.hpp slmm_spf.hpp slmm_gll.hpp \
+ slmm_basis.hpp slmm_io.hpp slmm_nla.hpp slmm_util.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmm_accum.hpp slmm_debug.hpp slmm_fit_extremum.hpp \
+ slmm_vis.hpp slmmir_util.hpp slmmir_mesh.hpp slmmir.hpp \
+ slmmir_remap_data.hpp slmmir_mono_data.hpp slmmir_remapper.hpp \
+ slmmir_p_refine.hpp slmmir_physgrid.hpp slmmir_d2c.hpp \
+ slmmir_time_int.hpp slmmir_lauritzen_diag.hpp slmmir_snapshot.hpp
+slmmir_d2c.o: slmmir_d2c.cpp slmmir_d2c.hpp slmmir.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_util.hpp slmm_spf.hpp
+slmmir_lauritzen_diag.o: slmmir_lauritzen_diag.cpp slmmir_p_refine.hpp \
+ slmmir_mono_data.hpp slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmm_util.hpp slmmir_mesh.hpp slmmir_remap_data.hpp \
+ slmm_nla.hpp slmmir.hpp slmm_spf.hpp slmmir_lauritzen_diag.hpp \
+ slmmir_d2c.hpp
+slmmir_mono_data.o: slmmir_mono_data.cpp slmmir_mono_data.hpp \
+ slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_gallery.hpp slmm_time_int.hpp slmm_util.hpp slmmir_mesh.hpp \
+ slmmir_remap_data.hpp slmm_nla.hpp slmmir.hpp slmm_spf.hpp
+slmmir_physgrid.o: slmmir_physgrid.cpp slmmir_physgrid.hpp slmm_nla.hpp \
+ slmm_array.hpp slmm_util.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmm_vis.hpp slmmir.hpp slmm_spf.hpp slmmir_d2c.hpp \
+ slmmir_mesh.hpp slmm_basis.hpp slmm_mesh.hpp slmm_array_tree.hpp \
+ slmm_gll.hpp slmm_io.hpp slmm_debug.hpp slmm_basis_reduced.hpp \
+ slmm_islet.hpp slmmir_util.hpp
+slmmir_p_refine.o: slmmir_p_refine.cpp slmmir_p_refine.hpp \
+ slmmir_mono_data.hpp slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmm_util.hpp slmmir_mesh.hpp slmmir_remap_data.hpp \
+ slmm_nla.hpp slmmir.hpp slmm_spf.hpp slmmir_util.hpp
+slmmir_remap_data.o: slmmir_remap_data.cpp slmmir_remap_data.hpp \
+ slmm_nla.hpp slmm_array.hpp slmm_util.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmmir.hpp slmm_spf.hpp slmmir_mesh.hpp \
+ slmm_basis.hpp slmmir_util.hpp slmm_gll.hpp
+slmmir_remapper.o: slmmir_remapper.cpp slmm_mesh.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_array_tree.hpp \
+ slmmir_remapper.hpp slmm_fit_extremum.hpp slmmir_p_refine.hpp \
+ slmmir_mono_data.hpp slmm_gll.hpp slmm_basis.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmm_util.hpp slmmir_mesh.hpp slmmir_remap_data.hpp \
+ slmm_nla.hpp slmmir.hpp slmm_spf.hpp slmmir_physgrid.hpp slmm_vis.hpp \
+ slmmir_d2c.hpp slmmir_util.hpp
+slmmir_remapper_isl.o: slmmir_remapper_isl.cpp slmm_mesh.hpp \
+ slmm_defs.hpp ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_array_tree.hpp \
+ slmm_accum.hpp slmmir_remapper.hpp slmm_fit_extremum.hpp \
+ slmmir_p_refine.hpp slmmir_mono_data.hpp slmm_gll.hpp slmm_basis.hpp \
+ slmm_gallery.hpp slmm_time_int.hpp slmm_util.hpp slmmir_mesh.hpp \
+ slmmir_remap_data.hpp slmm_nla.hpp slmmir.hpp slmm_spf.hpp \
+ slmmir_physgrid.hpp slmm_vis.hpp slmmir_d2c.hpp slmmir_util.hpp
+slmmir_snapshot.o: slmmir_snapshot.cpp slmmir_snapshot.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_util.hpp slmm_gallery.hpp \
+ slmm_time_int.hpp slmmir_mesh.hpp slmm_basis.hpp slmmir_p_refine.hpp \
+ slmmir_mono_data.hpp slmm_gll.hpp slmmir_remap_data.hpp slmm_nla.hpp \
+ slmmir.hpp slmm_spf.hpp slmm_accum.hpp
+slmmir_test.o: slmmir_test.cpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_mesh.hpp slmm_array_tree.hpp slmm_debug.hpp
+slmmir_time_int.o: slmmir_time_int.cpp slmmir_time_int.hpp \
+ slmm_time_int.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_util.hpp slmm_gallery.hpp slmmir_mesh.hpp slmm_basis.hpp \
+ slmmir_p_refine.hpp slmmir_mono_data.hpp slmm_gll.hpp \
+ slmmir_remap_data.hpp slmm_nla.hpp slmmir.hpp slmm_spf.hpp
+slmmir_time_int_exp.o: slmmir_time_int_exp.cpp slmmir_time_int.hpp \
+ slmm_time_int.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_util.hpp slmm_gallery.hpp slmmir_mesh.hpp slmm_basis.hpp \
+ slmmir_p_refine.hpp slmmir_mono_data.hpp slmm_gll.hpp \
+ slmmir_remap_data.hpp slmm_nla.hpp slmmir.hpp slmm_spf.hpp
+slmmir_util.o: slmmir_util.cpp slmmir_util.hpp slmm_basis.hpp \
+ slmm_defs.hpp ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmmir_mesh.hpp slmmir.hpp \
+ slmm_util.hpp slmm_spf.hpp slmm_gll.hpp
+slmm_islet.o: slmm_islet.cpp slmm_islet.hpp slmm_gll.hpp slmm_basis.hpp \
+ slmm_defs.hpp ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp
+slmm_islet_string.o: slmm_islet_string.cpp slmm_islet.hpp slmm_gll.hpp \
+ slmm_basis.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_util.hpp
+slmm_mesh.o: slmm_mesh.cpp slmm_mesh.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_array_tree.hpp slmm_gll.hpp \
+ slmm_basis.hpp slmm_util.hpp slmm_islet.hpp
+slmm_nla.o: slmm_nla.cpp slmm_util.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_nla.hpp
+slmm_spf.o: slmm_spf.cpp slmm_gll.hpp slmm_basis.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_spf.hpp slmm_nla.hpp \
+ slmm_util.hpp slmm_mesh.hpp slmm_array_tree.hpp slmm_accum.hpp
+slmm_spf_lqlt.o: slmm_spf_lqlt.cpp slmm_spf.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_array_tree.hpp
+slmm_test.o: slmm_test.cpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_mesh.hpp slmm_array_tree.hpp slmm_io.hpp slmm_nla.hpp slmm_util.hpp \
+ slmm_spf.hpp slmm_time_int.hpp slmm_gallery.hpp slmm_debug.hpp \
+ slmm_fit_extremum.hpp slmm_gll.hpp slmm_basis.hpp slmm_islet.hpp \
+ slmm_basis_reduced.hpp
+slmm_time_int.o: slmm_time_int.cpp slmm_time_int.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp slmm_util.hpp
+slmm_util.o: slmm_util.cpp slmm_util.hpp slmm_defs.hpp \
+ ../../siqk/siqk.hpp ../../siqk/siqk_geometry.hpp \
+ ../../siqk/siqk_defs.hpp ../../siqk/siqk_quadrature.hpp \
+ ../../siqk/siqk_search.hpp ../../siqk/siqk_intersect.hpp \
+ ../../siqk/siqk_sqr.hpp slmm_array.hpp
+slmm_vis.o: slmm_vis.cpp slmm_vis.hpp slmm_defs.hpp ../../siqk/siqk.hpp \
+ ../../siqk/siqk_geometry.hpp ../../siqk/siqk_defs.hpp \
+ ../../siqk/siqk_quadrature.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_intersect.hpp ../../siqk/siqk_sqr.hpp slmm_array.hpp \
+ slmm_io.hpp slmm_util.hpp ../../siqk/siqk_search.hpp \
+ ../../siqk/siqk_geometry.hpp
