@@ -19,8 +19,12 @@ public:
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
 
 public:
+
+  // The caller may optionally provide its own all-reduce implementation.
   struct UserAllReducer {
     typedef std::shared_ptr<const UserAllReducer> Ptr;
+
+    // MPI_Allreduce-like interface.
     virtual int operator()(const mpi::Parallel& p,
                            // In Fortran, these are formatted as
                            //   sendbuf(nlocal, nfld)
@@ -31,6 +35,14 @@ public:
                            // nfld is number of fields.
                            int nlocal, int nfld,
                            MPI_Op op) const = 0;
+
+    // Reductions sometimes must be done BFB-invariant to rank decomposition;
+    // that is the likeliest motivation for creating a UserAllReducer object. By
+    // default, CAAS provides each DOF to the UserAllReducer. However, DOF order
+    // may allow n DOFs in a row to be accumulated in a BFB-invariant way, e.g.,
+    // if those DOFs are guaranteed always to be on the same processor. If so,
+    // expose that value n here.
+    virtual int n_accum_in_place () const { return 1; }
   };
 
   CAAS(const mpi::Parallel::Ptr& p, const Int nlclcells,
