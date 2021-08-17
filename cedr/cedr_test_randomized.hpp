@@ -8,6 +8,8 @@
 #include "cedr_mpi.hpp"
 #include "cedr_util.hpp"
 
+#include <vector>
+
 namespace cedr {
 namespace test {
 

@@ -170,6 +170,7 @@ class Problem1D {
   static void run_cdr (const Problem1D& p, CDR& cdr,
                        const Real* yp, Real* y, const Int* dods) {
     const Int n = p.ncells();
+    const auto& op = cdr.get_device_op();
     for (Int i = 0; i < n; ++i) {
       const Int* dod = dods + 4*i;
       Real min = yp[dod[0]], max = min;
@@ -179,11 +180,11 @@ class Problem1D {
         max = std::max(max, v);
       }
       const Real area_i = p.area(i);
-      cdr.set_Qm(i, 0, y[i]*area_i, min*area_i, max*area_i, yp[i]*area_i);
+      op.set_Qm(i, 0, y[i]*area_i, min*area_i, max*area_i, yp[i]*area_i);
     }
     cdr.run();
     for (Int i = 0; i < n; ++i)
-      y[i] = cdr.get_Qm(i, 0) / p.area(i);
+      y[i] = op.get_Qm(i, 0) / p.area(i);
     y[n] = y[0];
   }
 
@@ -266,8 +267,8 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
 
   Problem1D p(in.ncells, false /* nonuniform_mesh */ );
 
-  auto tree = qlt::tree::make_tree_over_1d_mesh(parallel, in.ncells,
-                                                false /* imbalanced */);
+  auto tree = tree::make_tree_over_1d_mesh(parallel, in.ncells,
+                                           false /* imbalanced */);
   typedef qlt::QLT<Kokkos::DefaultHostExecutionSpace> QLTT;
   QLTT qltnn(parallel, in.ncells, tree), qlt(parallel, in.ncells, tree);
 
@@ -290,8 +291,9 @@ Int run (const mpi::Parallel::Ptr& parallel, const Input& in) {
                           cedr::ProblemType::shapepreserve, 0);
     cdr->end_tracer_declarations();
     cdr->finish_setup();
+    const auto& op = cdr->get_device_op();
     for (Int i = 0; i < in.ncells; ++i)
-      cdr->set_rhom(i, 0, p.area(i));
+      op.set_rhom(i, 0, p.area(i));
     cdr->print(std::cout);
   }
 

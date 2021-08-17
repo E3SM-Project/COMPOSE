@@ -36,10 +36,13 @@ namespace caas {
 
 template <typename ES>
 CAAS<ES>::CAAS (const mpi::Parallel::Ptr& p, const Int nlclcells,
-                const typename UserAllReducer::Ptr& uar)
-  : p_(p), user_reducer_(uar), nlclcells_(nlclcells), nrhomidxs_(0),
-    need_conserve_(false), finished_setup_(false)
-{
+                const typename UserAllReducer::Ptr& uar) {
+  p_ = p;
+  user_reducer_ = uar;
+  o.nlclcells_ = nlclcells;
+  o.nrhomidxs_ = 0;
+  o.need_conserve_ = false;
+  finished_setup_ = false;
   cedr_throw_if(nlclcells == 0, "CAAS does not support 0 cells on a rank.");
   tracer_decls_ = std::make_shared<std::vector<Decl> >();  
 }
@@ -51,31 +54,32 @@ void CAAS<ES>::declare_tracer(int problem_type, const Int& rhomidx) {
   cedr_throw_if(rhomidx > 0, "rhomidx > 0 is not supported yet.");
   tracer_decls_->push_back(Decl(problem_type, rhomidx));
   if (problem_type & ProblemType::conserve)
-    need_conserve_ = true;
-  nrhomidxs_ = std::max(nrhomidxs_, rhomidx+1);
+    o.need_conserve_ = true;
+  o.nrhomidxs_ = std::max(o.nrhomidxs_, rhomidx+1);
 }
 
 template <typename ES>
 void CAAS<ES>::end_tracer_declarations () {
   cedr_throw_if(tracer_decls_->size() == 0, "#tracers is 0.");
-  cedr_throw_if(nrhomidxs_ == 0, "#rhomidxs is 0.");
-  probs_ = IntList("CAAS probs", static_cast<Int>(tracer_decls_->size()));
-  probs_h_ = Kokkos::create_mirror_view(probs_);
+  cedr_throw_if(o.nrhomidxs_ == 0, "#rhomidxs is 0.");
+  o.probs_ = IntList("CAAS probs", static_cast<Int>(tracer_decls_->size()));
+  probs_h_ = Kokkos::create_mirror_view(o.probs_);
   //t2r_ = IntList("CAAS t2r", static_cast<Int>(tracer_decls_->size()));
-  for (Int i = 0; i < probs_.extent_int(0); ++i) {
+  for (Int i = 0; i < o.probs_.extent_int(0); ++i) {
     probs_h_(i) = (*tracer_decls_)[i].probtype;
     //t2r_(i) = (*tracer_decls_)[i].rhomidx;
   }
-  Kokkos::deep_copy(probs_, probs_h_);
+  Kokkos::deep_copy(o.probs_, probs_h_);
   tracer_decls_ = nullptr;
 }
 
 template <typename ES>
 void CAAS<ES>::get_buffers_sizes (size_t& buf1, size_t& buf2, size_t& buf3) {
-  const Int e = need_conserve_ ? 1 : 0;
-  const auto nslots = 4*probs_.size();
-  buf1 = nlclcells_ * ((3+e)*probs_.size() + 1);
-  buf2 = nslots*(user_reducer_ ? nlclcells_ : 1);
+  const Int e = o.need_conserve_ ? 1 : 0;
+  const auto nslots = 4*o.probs_.size();
+  buf1 = o.nlclcells_ * ((3+e)*o.probs_.size() + 1);
+  cedr_assert( ! user_reducer_ || o.nlclcells_ % user_reducer_->n_accum_in_place() == 0);
+  buf2 = nslots*(user_reducer_ ? (o.nlclcells_ / user_reducer_->n_accum_in_place()) : 1);
   buf3 = nslots;
 }
 
@@ -90,7 +94,7 @@ template <typename ES>
 void CAAS<ES>::set_buffers (Real* buf1, Real* buf2) {
   size_t buf1sz, buf2sz, buf3sz;
   get_buffers_sizes(buf1sz, buf2sz, buf3sz);
-  d_ = RealList(buf1, buf1sz);
+  o.d_ = RealList(buf1, buf1sz);
   send_ = RealList(buf2, buf2sz);
   recv_ = RealList(buf2 + buf2sz, buf3sz);
 }
@@ -104,7 +108,7 @@ void CAAS<ES>::finish_setup () {
   size_t buf1, buf2, buf3;
   get_buffers_sizes(buf1, buf2, buf3);
   // (rho, Qm, Qm_min, Qm_max, [Qm_prev])
-  d_ = RealList("CAAS data", buf1);
+  o.d_ = RealList("CAAS data", buf1);
   // (e'Qm_clip, e'Qm, e'Qm_min, e'Qm_max, [e'Qm_prev])
   send_ = RealList("CAAS send", buf2);
   recv_ = RealList("CAAS recv", buf3);
@@ -113,57 +117,55 @@ void CAAS<ES>::finish_setup () {
 
 template <typename ES>
 int CAAS<ES>::get_problem_type (const Int& tracer_idx) const {
-  cedr_assert(tracer_idx >= 0 && tracer_idx < probs_.extent_int(0));
+  cedr_assert(tracer_idx >= 0 && tracer_idx < o.probs_.extent_int(0));
   return probs_h_[tracer_idx];
 }
 
 template <typename ES>
 Int CAAS<ES>::get_num_tracers () const {
-  return probs_.extent_int(0);
-}
-
-template <typename RealList, typename IntList>
-KOKKOS_INLINE_FUNCTION static void
-calc_Qm_scalars (const RealList& d, const IntList& probs,
-                 const Int& nt, const Int& nlclcells,
-                 const Int& k, const Int& os, const Int& i,
-                 Real& Qm_clip, Real& Qm_term) {
-  const Real Qm = d(os+i);
-  Qm_term = (probs(k) & ProblemType::conserve ?
-             d(os + nlclcells*3*nt + i) /* Qm_prev */ :
-             Qm);
-  const Real Qm_min = d(os + nlclcells*  nt + i);
-  const Real Qm_max = d(os + nlclcells*2*nt + i);
-  Qm_clip = cedr::impl::min(Qm_max, cedr::impl::max(Qm_min, Qm));
+  return o.probs_.extent_int(0);
 }
 
 template <typename ES>
 void CAAS<ES>::reduce_locally () {
   const bool user_reduces = user_reducer_ != nullptr;
-  ConstExceptGnu Int nt = probs_.size(), nlclcells = nlclcells_;
+  ConstExceptGnu Int nt = o.probs_.size(), nlclcells = o.nlclcells_;
 
-  const auto probs = probs_;
+  const auto probs = o.probs_;
   const auto send = send_;
-  const auto d = d_;
+  const auto d = o.d_;
   if (user_reduces) {
+    const Int n_accum_in_place = user_reducer_->n_accum_in_place();
+    const Int nlclaccum = nlclcells / n_accum_in_place;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const Int& j) {
-      const auto k = j / nlclcells;
-      const auto i = j % nlclcells;
+      const auto k = j / nlclaccum;
+      const auto bi = j % nlclaccum;
       const auto os = (k+1)*nlclcells;
-      Real Qm_clip, Qm_term;
-      calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
-      d(os+i) = Qm_clip;
-      send(nlclcells*      k  + i) = Qm_clip;
-      send(nlclcells*(nt + k) + i) = Qm_term;
+      Real accum_clip = 0, accum_term = 0;
+      for (Int ai = 0; ai < n_accum_in_place; ++ai) {
+        const Int i = n_accum_in_place*bi + ai;
+        Real Qm_clip, Qm_term;
+        calc_Qm_scalars(d, probs, nt, nlclcells, k, os, i, Qm_clip, Qm_term);
+        d(os + i) = Qm_clip;
+        accum_clip += Qm_clip;
+        accum_term += Qm_term;
+      }
+      send(nlclaccum*      k  + bi) = accum_clip;
+      send(nlclaccum*(nt + k) + bi) = accum_term;
     };
-    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclcells), calc_Qm_clip);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, nt*nlclaccum), calc_Qm_clip);
     const auto set_Qm_minmax = KOKKOS_LAMBDA (const Int& j) {
-      const auto k = 2*nt + j / nlclcells;
-      const auto i = j % nlclcells;
+      const auto k = 2*nt + j / nlclaccum;
+      const auto bi = j % nlclaccum;
       const auto os = (k-nt+1)*nlclcells;
-      send(nlclcells*k + i) = d(os+i);
+      Real accum_ext = 0;
+      for (Int ai = 0; ai < n_accum_in_place; ++ai) {
+        const Int i = n_accum_in_place*bi + ai;
+        accum_ext += d(os + i);
+      }
+      send(nlclaccum*k + bi) = accum_ext;
     };
-    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclcells), set_Qm_minmax);
+    Kokkos::parallel_for(Kokkos::RangePolicy<ES>(0, 2*nt*nlclaccum), set_Qm_minmax);
   } else {
     using ESU = cedr::impl::ExeSpaceUtils<ES>;
     const auto calc_Qm_clip = KOKKOS_LAMBDA (const typename ESU::Member& t) {
@@ -209,9 +211,9 @@ void CAAS<ES>::reduce_globally () {
 template <typename ES>
 void CAAS<ES>::finish_locally () {
   using ESU = cedr::impl::ExeSpaceUtils<ES>;
-  ConstExceptGnu Int nt = probs_.size(), nlclcells = nlclcells_;
+  ConstExceptGnu Int nt = o.probs_.size(), nlclcells = o.nlclcells_;
   const auto recv = recv_;
-  const auto d = d_;
+  const auto d = o.d_;
   const auto adjust_Qm = KOKKOS_LAMBDA (const typename ESU::Member& t) {
     const auto k = t.league_rank();
     const auto os = (k+1)*nlclcells;
@@ -251,13 +253,17 @@ void CAAS<ES>::finish_locally () {
 }
 
 template <typename ES>
+const CAAS<ES>::DeviceOp& CAAS<ES>::get_device_op() { return o; }
+
+template <typename ES>
 void CAAS<ES>::run () {
   cedr_assert(finished_setup_);
   reduce_locally();
   const bool user_reduces = user_reducer_ != nullptr;
   if (user_reduces)
     (*user_reducer_)(*p_, send_.data(), recv_.data(),
-                     nlclcells_, recv_.size(), MPI_SUM);
+                     o.nlclcells_ / user_reducer_->n_accum_in_place(),
+                     recv_.size(), MPI_SUM);
   else
     reduce_globally();
   finish_locally();
@@ -268,15 +274,19 @@ struct TestCAAS : public cedr::test::TestRandomized {
   typedef CAAS<Kokkos::DefaultExecutionSpace> CAAST;
 
   struct TestAllReducer : public CAAST::UserAllReducer {
+    TestAllReducer (const Int n_accum) : n_(n_accum) {}
+
+    Int n_accum_in_place () const override { return n_; }
+
     int operator() (const mpi::Parallel& p, Real* sendbuf, Real* rcvbuf,
                     int nlcl, int count, MPI_Op op) const override {
       Kokkos::View<Real*> s(sendbuf, nlcl*count), r(rcvbuf, count);
       const auto s_h = Kokkos::create_mirror_view(s);
       Kokkos::deep_copy(s_h, s);
       const auto r_h = Kokkos::create_mirror_view(r);
-      for (int i = 1; i < nlcl; ++i)
-        s_h(0) += s_h(i);
-      for (int k = 1; k < count; ++k) {
+      for (int k = 0; k < count; ++k) {
+        // When k == 0, s_h(0:nlcl-1) is summed. Then s_h(1:nlcl-1) is
+        // free to be overwritten.
         s_h(k) = s_h(nlcl*k);
         for (int i = 1; i < nlcl; ++i)
           s_h(k) += s_h(nlcl*k + i);
@@ -285,6 +295,9 @@ struct TestCAAS : public cedr::test::TestRandomized {
       Kokkos::deep_copy(r, r_h);
       return err;
     }
+
+  private:
+    Int n_;
   };
 
   TestCAAS (const mpi::Parallel::Ptr& p, const Int& ncells,
@@ -297,9 +310,16 @@ struct TestCAAS : public cedr::test::TestRandomized {
     nlclcells_ = ncells / np;
     const Int todo = ncells - nlclcells_ * np;
     if (rank < todo) ++nlclcells_;
-    caas_ = std::make_shared<CAAST>(
-      p, nlclcells_,
-      use_own_reducer ? std::make_shared<TestAllReducer>() : nullptr);
+    CAAST::UserAllReducer::Ptr reducer;
+    if (use_own_reducer) {
+      // Although it doesn't make sense to do this in practice, nothing prevents
+      // us from using different n_accum_in_place values in different ranks. So
+      // just compute a local value.
+      const Int n_accum = (nlclcells_ % 3 == 0 ? 3 :
+                           nlclcells_ % 2 == 0 ? 2 : 1);
+      reducer = std::make_shared<TestAllReducer>(n_accum);
+    }
+    caas_ = std::make_shared<CAAST>( p, nlclcells_, reducer);
     init();
   }
 

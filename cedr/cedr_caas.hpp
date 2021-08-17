@@ -6,6 +6,8 @@
 
 #include "cedr_cdr.hpp"
 
+#include <vector>
+
 namespace cedr {
 // ClipAndAssuredSum.
 namespace caas {
@@ -17,10 +19,15 @@ public:
   typedef CAAS<ExeSpace> Me;
   typedef std::shared_ptr<Me> Ptr;
   typedef Kokkos::View<Real*, Kokkos::LayoutLeft, Device> RealList;
+  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
 
 public:
+
+  // The caller may optionally provide its own all-reduce implementation.
   struct UserAllReducer {
     typedef std::shared_ptr<const UserAllReducer> Ptr;
+
+    // MPI_Allreduce-like interface.
     virtual int operator()(const mpi::Parallel& p,
                            // In Fortran, these are formatted as
                            //   sendbuf(nlocal, nfld)
@@ -31,6 +38,14 @@ public:
                            // nfld is number of fields.
                            int nlocal, int nfld,
                            MPI_Op op) const = 0;
+
+    // Reductions sometimes must be done BFB-invariant to rank decomposition;
+    // that is the likeliest motivation for creating a UserAllReducer object. By
+    // default, CAAS provides each DOF to the UserAllReducer. However, DOF order
+    // may allow n DOFs in a row to be accumulated in a BFB-invariant way, e.g.,
+    // if those DOFs are guaranteed always to be on the same processor. If so,
+    // expose that value n here.
+    virtual int n_accum_in_place () const { return 1; }
   };
 
   CAAS(const mpi::Parallel::Ptr& p, const Int nlclcells,
@@ -50,23 +65,31 @@ public:
 
   Int get_num_tracers() const override;
 
-  // lclcellidx is trivial; it is the user's index for the cell.
-  KOKKOS_INLINE_FUNCTION
-  void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) const override;
+  struct DeviceOp : public CDR::DeviceOp {
+    // lclcellidx is trivial; it is the user's index for the cell.
+    KOKKOS_INLINE_FUNCTION
+    void set_rhom(const Int& lclcellidx, const Int& rhomidx, const Real& rhom) const override;
 
-  KOKKOS_INLINE_FUNCTION
-  void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
-              const Real& Qm, const Real& Qm_min, const Real& Qm_max,
-              const Real Qm_prev = std::numeric_limits<Real>::infinity()) const override;
+    KOKKOS_INLINE_FUNCTION
+    void set_Qm(const Int& lclcellidx, const Int& tracer_idx,
+                const Real& Qm, const Real& Qm_min, const Real& Qm_max,
+                const Real Qm_prev = std::numeric_limits<Real>::infinity()) const override;
+
+    KOKKOS_INLINE_FUNCTION
+    Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
+
+    Int nlclcells_, nrhomidxs_;
+    bool need_conserve_;
+    IntList probs_;
+    RealList d_;
+  };
+
+  const DeviceOp& get_device_op() override;
 
   void run() override;
 
-  KOKKOS_INLINE_FUNCTION
-  Real get_Qm(const Int& lclcellidx, const Int& tracer_idx) const override;
-
 protected:
   typedef cedr::impl::Unmanaged<RealList> UnmanagedRealList;
-  typedef Kokkos::View<Int*, Kokkos::LayoutLeft, Device> IntList;
 
   struct Decl {
     int probtype;
@@ -77,14 +100,12 @@ protected:
 
   mpi::Parallel::Ptr p_;
   typename UserAllReducer::Ptr user_reducer_;
-
-  Int nlclcells_, nrhomidxs_;
   std::shared_ptr<std::vector<Decl> > tracer_decls_;
-  bool need_conserve_;
-  IntList probs_, t2r_;
   typename IntList::HostMirror probs_h_;
-  RealList d_, send_, recv_;
+  IntList t2r_;
+  RealList send_, recv_;
   bool finished_setup_;
+  DeviceOp o;
 
   void reduce_globally();
 
