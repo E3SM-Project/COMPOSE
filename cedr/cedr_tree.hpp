@@ -7,6 +7,8 @@
 #include "cedr_tree_caller.hpp"
 #include "cedr_util.hpp"
 
+#include <vector>
+
 namespace cedr {
 namespace tree {
 using cedr::mpi::Parallel;
