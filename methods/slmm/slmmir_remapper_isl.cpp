@@ -1167,8 +1167,12 @@ interp (const Mesh& m, const C2DRelations& c2d, const AVec3s& advected_p,
       const Real ta = gll_x[ni % np], tb = gll_x[ni / np];
       Real Jd;
       if (md_) {
+        // This is the case of interest and runs when property preservation is
+        // on. For the case of p-refinement, it runs with np=npv=4, not npt.
         Jd = calc_isoparametric_jacobian(advected_p, cell, np, ta, tb);
       } else {
+        // This happens only when property preservation is off, in which case
+        // density doesn't couple to the mixing ratios.
         const Int corners[] = {cell[0], cell[np-1],
                                cell[np*np-1], cell[np*(np-1)]};
         Jd = calc_jacobian(advected_p, corners, ta, tb);
@@ -1640,7 +1644,7 @@ void Remapper
               tgt_rho_impl, tgt_tracer_impl, ntracers,
               positive_only, false /* don't apply cdr to rho */, cdr_method);
     }
-    // In the following two cases, continuity does not hold nore need hold on
+    // In the following two cases, continuity does not hold nor need hold on
     // any of the grids.
     //   Map q on tgrid to q on vgrid.
     isl_impl_->transfer_q_to_v_mesh(run_cdr, ntracers,

@@ -59,30 +59,5 @@ libslmm: $(SLMM_OBJECTS) slmm_c_compat.o
 clean:
 	rm -f *.o *.mod slmm_test slmmir libslmm.so *.gcov *.gcda *.gcno
 
-slmm_test.o: slmm_defs.hpp slmm_mesh.hpp slmm_gll.hpp slmm_io.hpp slmm_time_int.hpp slmm_gallery.hpp slmm_islet.hpp $(SIQK)/siqk.hpp $(SIQK)/siqk_sqr.hpp
-slmmir.o: slmm_defs.hpp slmm_util.hpp slmm_mesh.hpp slmm_gll.hpp slmm_io.hpp slmm_time_int.hpp slmm_gallery.hpp slmm_nla.hpp slmm_spf.hpp slmm_fit_extremum.hpp slmmir_time_int.hpp $(SIQK)/siqk.hpp $(SIQK)/siqk_quadrature.hpp $(SIQK)/siqk_sqr.hpp slmmir_remapper.hpp slmmir_remap_data.hpp slmmir_mono_data.hpp slmm_islet.hpp slmm_accum.hpp slmm_vis.hpp slmmir_time_int.hpp
-slmmir_time_int.o: slmm_gallery.hpp slmm_time_int.hpp slmmir_p_refine.hpp slmmir_time_int.hpp
-slmmir_time_int_exp.o: slmm_gallery.hpp slmm_time_int.hpp
-slmm_test.o: slmm_defs.hpp slmm_util.hpp slmm_mesh.hpp slmm_gll.hpp slmm_io.hpp slmm_time_int.hpp slmm_gallery.hpp slmm_nla.hpp slmm_spf.hpp $(SIQK)/siqk.hpp $(SIQK)/siqk_sqr.hpp
-slmm_mesh.o: slmm_mesh.hpp $(SIQK)/siqk.hpp slmm_array.hpp
-slmm_spf.o: slmm_spf.hpp $(SIQK)/siqk.hpp
-slmm_io.o: slmm_io.hpp
-slmm_nla.o: slmm_nla.hpp
-slmm_time_int.o: slmm_time_int.hpp
-slmm_gallery.o: slmm_gallery.hpp
-slmm_util.o: slmm_util.hpp
-slmmir_remap_data.o: slmmir_remap_data.hpp
-slmmir_p_refine.o: slmmir_p_refine.hpp
-slmmir_mono_data.o: slmmir_mono_data.hpp
-slmmir_remapper.o: slmmir_remapper.hpp slmmir_remap_data.hpp slmmir_mono_data.hpp slmmir_util.hpp slmmir.hpp slmmir_physgrid.hpp
-slmmir_remapper_isl.o: slmmir_remapper.hpp slmmir_remap_data.hpp slmmir_mono_data.hpp slmmir_p_refine.hpp slmm_islet.hpp slmmir.hpp slmmir_physgrid.hpp slmm_accum.hpp
-slmmir_util.o: slmmir_util.hpp
-slmmir_p_refine.o: slmmir_p_refine.hpp slmm_islet.hpp
-slmm_islet.o: slmm_islet.hpp
-slmm_islet_string.o: slmm_islet.hpp
-slmm_accum.o: slmm_accum.hpp
-slmm_vis.o: slmm_vis.hpp
-slmmir_physgrid.o: slmmir_physgrid.hpp
-physgrid.o: slmmir_physgrid.hpp
-slmm_basis.o: slmm_basis.hpp
-slmm_basis_reduced.o: slmm_islet.hpp slmm_basis_reduced.hpp
+# generate by running `bash make.depends`
+include make.depends
