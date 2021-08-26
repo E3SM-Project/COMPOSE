@@ -1,0 +1,376 @@
+% hy figs-methods.hy basis-schematic 6
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.75\linewidth]{basis-schematic-np6-annotated}
+  \caption{
+    Basis functions for the Islet $\np=6$ GLL nodal subset basis listed in Table \ref{tbl:gll}.
+    Each curve's color corresponds to a basis function.
+    Each line pattern corresponds to a basis type, as listed in the legend.
+    The green span shows region 1.
+    The red arrows point to the nodes in the support of region 1;
+    the red $\times$ is beneath the one node not in region 1's support.
+  }
+  \label{fig:np6-basis}
+\end{figure}
+
+\begin{table}[tbh]
+  \input{figs/methods-table-gll.tex}
+  \caption{
+    Islet GLL nodal subset bases.
+    Each row provides a formula for the row's $\np$ value.
+    Columns are $\np$, order of accuracy (OOA),
+    the support sizes $\npsub$ for each region ordered left to middle,
+    and the supports.
+    For offset nodal subset bases, supports are given by offsets.
+    For general nodal subset bases, supports are given by nodal subsets, again ordered from left region to middle.
+    The case $\np=4$ is described in Sect.~\ref{sec:np4}.
+    In all cases, the support points are GLL points.
+  }
+  \label{tbl:gll}
+\end{table}
+
+% ./pum_sweep 8 512 4 0 > pum_sweep-np8-gll_natural.txt
+% ./pum_sweep 8 512 4 1 > pum_sweep-np8-gll_best.txt
+% ./pum_sweep 8 512 4 2 > pum_sweep-np8-uni.txt
+% ./run_meam1_sweep 8 > run_meam1_sweep-np8.txt
+% hy figs-methods.hy meam1-and-pum-vs-dx
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{meam1-and-pum-vs-dx}
+  \caption{
+    $\lambdamax(\Delta x)-1$ (solid lines) and $\lambdamaxpum(\Delta x)-1$ (markers) for
+    the natural GLL (red, small circles), uniform-points offset nodal subset (green, $\times$), and
+    Islet GLL nodal subset (black, large circle) $\np=8$ bases.
+    Green dotted vertical lines mark multiples of $1/(\np-1)=1/7$.
+  }
+  \label{fig:meam1-and-pum-vs-dx}
+\end{figure}
+
+% ./pum_perturb_plot > pum_perturb_plot-041021.txt
+% hy figs-methods.hy pum-vs-perturb
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{pum-vs-perturb}
+  % include only gll_best b/c uniform_offset_nodal_subset was already shown to
+  % be bad at i*1/(np-1) > 0.5, integer i.
+  \caption{
+    $\lambdamaxpum(\delta)-1$ for the bases in Table \ref{tbl:gll} with $\np \ge 6$.
+    The triangle provides a $\delta^4$ reference slope.
+  }
+  \label{fig:pum-vs-perturb}
+\end{figure}
+
+% hy figs-methods.hy np4-schematic
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{np4-schematic}
+  \caption{
+  Illustration of the optimized Islet GLL $\np=4$ basis (solid line) compared with
+  the natural (dotted) and the best nodal subset (dashed) $\np=4$ bases.
+  Each basis function in a basis has its own color.
+  The top panel shows the convex combination parameter value as a function of reference coordinate
+  that is used to combine the natural and best nodal subset bases
+  to form the optimized basis.
+  }
+  \label{fig:np4-schematic}
+\end{figure}
+
+% hy figs-methods.hy illustrations
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{illustrate-grids}
+  \caption{
+    One spectral element (blue solid line outlining the full square) with
+    dynamics (black large circles), tracer (small red circles), and physics (green dashed lines) subelement grids.
+  }
+  \label{fig:illustrate-grids}
+\end{figure}
+
+% bash run-stability-cmp.sh > stability-cmp-0.txt
+% hy figs-adv-diag.hy fig-stab-cmp stability-cmp-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{stab-cmp-l2}
+  \caption{
+    Stability of the Islet method with the Islet GLL bases,
+    compared with the instability of the method with the natural GLL bases.
+    The $x$-axis is average dynamics grid point spacing at the equator in degrees for the quasiuniform cubed-sphere grid.
+    The $y$-axis is $\log_{10} l_2$ relative error.
+    A curve's line pattern corresponds to basis type and number of cycles, as listed in the top legend.
+    A curve's marker corresponds to $\npt$, as listed in the bottom legend.
+    The case is divergent flow, Gaussian hills ICs, property preservation, $p$-refinement, and long time steps.
+  }
+  \label{fig:islet-vs-gll}
+\end{figure}
+
+% bash run-accuracy.sh > acc-0.txt
+% hy figs-adv-diag.hy fig-midpoint acc-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{midpoint-check}
+  \caption{
+    Comparison of relative errors calculated at the test simulation's midpoint time of 6 days (1/2 cycle, dashed lines)
+    and endpoint time of 12 days (1 cycle, solid lines).
+    Each number at the right side of the plot is the empirical OOA computed using the final two points of the 1-cycle result.
+  }
+  \label{fig:traj-interp}
+\end{figure}
+
+% hy figs-adv-diag.hy figs-acc acc-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{acc-nondivergent-gau-exact-nopp-fac5}
+  \caption{
+    Empirical verification of the order of accuracy of the Islet GLL bases.
+    Each number at the right side of the plot is empirical OOA computed using the final two points of the $l_\infty$ curve.
+  }
+  \label{fig:islet-empirical-ooa}
+\end{figure}
+
+% hy figs-methods.hy write-slmmir-script
+% bash run-slmmir-on-basis-lines.sh > slmmir-on-basis-lines-2.txt
+% hy figs-methods.hy plot-slmmir-vs-heuristic # uses slmmir-on-basis-lines-2.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{slmmir-vs-heuristic-gau-nopp-l2}
+  \caption{$l_2$ norm on the nondivergent flow problem
+    using basis $\basisns_{\np}$ vs.~$a_2(\basisns_{\np})$,
+    for a large number of \abtps~bases and $\np=6$ to $10$.
+    The legend lists the marker type for each $\np$.
+    Large red circles outline the bases in Table \ref{tbl:gll}.
+    The configuration uses the Gaussian hills IC and no property preservation.}
+  \label{fig:slmmir-vs-heuristic-a}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{slmmir-vs-heuristic-cos-pp-l2}
+  \caption{Same as Fig.~\ref{fig:slmmir-vs-heuristic-a} except that the configuration
+    uses the cosine bells IC with property preservation.}
+  \label{fig:slmmir-vs-heuristic-b}
+\end{figure}
+
+% hy figs-adv-diag.hy figs-acc acc-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-nondivergent-gau-interp-pp-fac1}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Figs.~1, 2 in TR14.
+  }
+  \label{fig:islet-acc-nondiv-gau-a}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-nondivergent-gau-interp-pp-fac5}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Figs.~1, 2 in TR14.
+  }
+  \label{fig:islet-acc-nondiv-gau-b}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-nondivergent-cos-interp-pp-fac1}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Fig.~3 in TR14.
+  }
+  \label{fig:islet-acc-nondiv-cos-a}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-nondivergent-cos-interp-pp-fac5}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Fig.~3 in TR14.
+  }
+  \label{fig:islet-acc-nondiv-cos-b}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-divergent-cos-interp-pp-fac1}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Fig.~16 in TR14.
+  }
+  \label{fig:islet-acc-div-cos-a}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.48\linewidth]{acc-divergent-cos-interp-pp-fac5}
+  \caption{
+    Accuracy diagnostic.
+    Compare with Fig.~16 in TR14.
+  }
+  \label{fig:islet-acc-div-cos-b}
+\end{figure}
+
+% hy figs-adv-diag.hy fig-filament acc-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{filament}
+  \caption{
+    Filament diagnostic, following Sect.~3.3 of TS12.
+    Compare with Fig.~5 in TR14.
+    The top row shows the diagnostic measured on the $\npv=4$ dynamics grid;
+    the bottom row, on the tracer grid.
+    The legend describes the dynamics-grid resolution and the time step length.
+    The prescribed validation problem is the nondivergent flow with cosine bells IC.
+    Property preservation is on.
+    The $x$-axis is $\tau$, the mixing ratio threshold.
+    The $y$-axis is the percent area having mixing ratio at least $\tau$ relative to that at the initial time.
+  }
+  \label{fig:filament}
+\end{figure}
+
+% bash run-mixing.sh > mixing-0.txt
+% hy figs-adv-diag.hy figs-mixing mixing-0.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{mixing-ne20.png}
+  \caption{
+    Mixing diagnostic, following Sect.~3.5 of TS12.
+    Compare with Figs.~11--14 in TR14.
+    This figure shows results for dynamics-grid resolution of 1.5$^\circ$.
+    $l_o$ is exactly 0 in all cases because shape preservation is on, and so is not shown.
+    See the text for further details.}
+  \label{fig:mixing-ne20}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{mixing-ne40.png}
+  \caption{Same as Fig.~\ref{fig:mixing-ne20} but with dynamics-grid resolution $0.75^\circ$.}
+  \label{fig:mixing-ne40}
+\end{figure}
+
+% bash run-img-filament.sh > filament-imgs-0.txt
+% hy figs-adv-diag.hy img-filament filament-imgs-0.txt filament-imgs
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{slo-midpoint}
+  \caption{
+    Images of the slotted cylinders IC advected by the nondivergent flow at the simulation's midpoint.
+    Each column corresponds to a spatial resolution and time step length configuration,
+    as stated at the top of each column.
+    Each row corresponds to a particular value of $\npt$, as stated in the text at the top-right of each image.
+    We omit $\npt=12$ results for the $0.75^\circ$ resolution because they are essentially identical at the resolution of the figure to the $\npt=8$ images.
+  }
+  \label{fig:slocyl-midpoint}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{slo-finpoint}
+  \caption{
+    Same as Fig.~\ref{fig:slocyl-midpoint} but for the simulation final point.
+    Error measures are printed at the bottom-left of each image; see text for details.
+  }
+  \label{fig:slocyl-finpoint}
+\end{figure}
+
+% bash run-pg-srcterm-midpoint-test.sh > pg-srcterm-midpoint-test-nbdy3-1.txt
+% hy figs-adv-diag.hy fig-pg-mimic-src-term pg-srcterm-midpoint-test-nbdy3-1.txt
+% nbdy3 => edge_np = interior_np = 3
+\begin{figure}[tbh]
+  \centering
+  % pg = np and pg = 2
+  \includegraphics[width=0.5\linewidth]{acc-pg-mimic-src-term-midpoint-nondivergent-gau-interp-pp-fac5-l2}
+  \caption{
+    Validation of the remap of tendencies from physics to tracer grids and state from tracer to dynamics grids.
+    See Sect.~\ref{sec:results:sources} for a description of the problem.
+  }
+  \label{fig:pg-mimic-src-term}
+\end{figure}
+
+% bash run-toychem-diagnostic.sh > toychem-diagnostic-nbdy3-0.txt
+% hy figs-adv-diag.hy fig-toychem-diagnostic toychem-diagnostic-nbdy3-0.txt
+\begin{figure}[tbh]
+  \centering
+  % pg = np-2
+  \includegraphics[width=0.5\linewidth]{toychem-diagnostic}
+  \caption{
+    Toy chemistry diagnostic values as a function of time for ten cycles of the nondivergent flow.
+    Time is on the $x$-axis and measured in cycles.
+    Diagnostic values for the $l_2$-norm (solid lines) and $l_\infty$-norm (dashed lines) are on the $y$-axis.
+    Markers as listed in the bottom legend are placed at the start of each cycle to differentiate the curves.
+  }
+  \label{fig:toychem-diagnostic}
+\end{figure}
+
+% bash run-toychem-imgs.sh
+% hy figs-adv-diag.hy fig-toychem-finpoint toychem-imgs-nbdy3
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{toychem-finpoint}
+  \caption{
+    Images of the monatomic tracer at the end of the first cycle.
+    Text at the lower left of each image states the configuration.
+    Text at the upper right reports global extremal values.
+  }
+  \label{fig:toychem-finpoint}
+\end{figure}
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=1\linewidth]{toychem-finpoint-diagnostic}
+  \caption{
+    Same as Fig.~\ref{fig:toychem-finpoint}, but now the images are of $(X_T - \bar{X}_T)/\bar{X}_T$.
+  }
+  \label{fig:toychem-finpoint-diagnostic}
+\end{figure}
+
+% bash run-isl-footprint.sh > isl-footprint-1.txt
+% hy figs-adv-diag.hy fig-comm-footprint isl-footprint-1.txt
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{isl-footprint}
+  \caption{
+    Communication volume, in number of real scalars transmitted in $q$-messages
+    per tracer per element per time step ($y$-axis)
+    vs.~time in days of the simulation ($x$-axis),
+    in the case of one element per process,
+    for the nondivergent flow,
+    with long (left) and short (right) time steps.
+    Statistic and $\npt$ line patterns are stated in the legends.
+  }
+  \label{fig:footprint}
+\end{figure}
+
+% code branch: https://github.com/ambrad/E3SM/releases/tag/islet-2d-paper-summit-sl-gpu-timings
+% data: https://github.com/E3SM-Project/perf-data/tree/main/nhxx-sl-summit-mar2021
+% generate a table of data:
+%   hy sl-gpu-perf.hy table "perf-data/nhxx-sl-summit-mar2021/data/qsize10/*"
+%   hy sl-gpu-perf.hy table "perf-data/nhxx-sl-summit-mar2021/data/qsize40/*"
+% we use these table entries to make the figure in addition to the SC20 paper's
+% data:
+% >>> ne 1024 qsize 10 nmax  4096 alg Eul    main_loop
+% 1024  383.49   0.29
+% 2048  225.43   0.50
+% 4096  132.30   0.85
+% 4600  120.84   0.93
+% >>> ne 1024 qsize 10 nmax  4096 alg SL     main_loop
+% 1024  253.64   0.44  1.51
+% 2048  146.66   0.77  1.54
+% 4096   89.18   1.26  1.48
+% 4600   81.39   1.38  1.48
+% >>> ne 1024 qsize 40 nmax  4096 alg Eul    main_loop
+% 2048  461.20   0.24
+% 4096  274.52   0.41
+% 4600  257.60   0.44
+% >>> ne 1024 qsize 40 nmax  4096 alg SL     main_loop
+% 2048  167.22   0.67  2.76
+% 4096   99.70   1.13  2.75
+% 4600   90.23   1.24  2.85
+% hy sl-gpu-perf.hy fig
+\begin{figure}[tbh]
+  \centering
+  \includegraphics[width=0.5\linewidth]{sl-gpu-perf-032521-islet}
+  \caption{
+    Performance comparison of SL transport with $\npv=\npt=4$ vs.~Eulerian transport
+    in the E3SM Atmosphere Model's dynamical core on the Summit supercomputer.
+    The $x$-axis is number of NVIDIA V100 GPUs on Summit used in a run;
+    the $y$-axis is dycore throughput reported in simulated years per wallclock day (SYPD).
+    The black curves are for Eulerian transport; the red, for SL.
+    Dashed lines are for 40 tracers; solid and the dotted black line, for 10.
+    A number above a data point reports the $y$-value of that point.
+  }
+  \label{fig:summit-perf}
+\end{figure}

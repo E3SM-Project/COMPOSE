@@ -108,7 +108,7 @@ Int Basis::compute_and_print_weights (const Basis& basis, bool print_x, bool tes
   const Real* xnode;
   for (Int np = 2; np <= Basis::np_max; ++np) {
     // Basis need not support every np.
-    if ( ! basis.get_x(np, xnode)) continue;
+    if ( ! basis.get_w(np, xnode)) continue;
     Real integral[np_max] = {0};
     compute_weights(basis, np, integral);
     if ( ! test) {

@@ -1,0 +1,40 @@
+cslunstab.o: cslunstab.cpp
+islet_isl.o: islet_isl.cpp islet_tables.hpp islet_types.hpp \
+ islet_util.hpp islet_isl.hpp islet_interpmethod.hpp \
+ islet_xnodes_metrics.hpp islet_nodalbasis.hpp islet_npx.hpp
+islet_maxeigcomp.o: islet_maxeigcomp.cpp islet_maxeigcomp.hpp \
+ islet_types.hpp islet_util.hpp islet_interpmethod.hpp islet_npx.hpp \
+ islet_tables.hpp
+islet_nodalbasis.o: islet_nodalbasis.cpp islet_nodalbasis.hpp \
+ islet_types.hpp islet_util.hpp islet_npx.hpp islet_tables.hpp \
+ islet_interpmethod.hpp
+islet_np4.o: islet_np4.cpp islet_np4.hpp islet_types.hpp islet_isl.hpp \
+ islet_interpmethod.hpp
+islet_npx.o: islet_npx.cpp islet_npx.hpp islet_util.hpp islet_types.hpp \
+ islet_tables.hpp islet_interpmethod.hpp
+islet_pum.o: islet_pum.cpp islet_pum.hpp islet_types.hpp \
+ islet_maxeigcomp.hpp islet_util.hpp islet_interpmethod.hpp islet_npx.hpp \
+ islet_tables.hpp islet_isl.hpp
+islet_studymetrics.o: islet_studymetrics.cpp islet_pum.hpp \
+ islet_types.hpp islet_maxeigcomp.hpp islet_util.hpp \
+ islet_interpmethod.hpp islet_npx.hpp islet_tables.hpp \
+ islet_xnodes_metrics.hpp islet_nodalbasis.hpp
+islet_tables.o: islet_tables.cpp islet_types.hpp islet_util.hpp \
+ islet_tables.hpp
+islet_xnodes_metrics.o: islet_xnodes_metrics.cpp islet_xnodes_metrics.hpp \
+ islet_types.hpp islet_nodalbasis.hpp islet_util.hpp islet_tables.hpp \
+ islet_npx.hpp islet_interpmethod.hpp islet_maxeigcomp.hpp islet_pum.hpp \
+ islet_isl.hpp
+pum_sweep.o: pum_sweep.cpp islet_isl.hpp islet_types.hpp \
+ islet_interpmethod.hpp islet_pum.hpp islet_maxeigcomp.hpp islet_util.hpp \
+ islet_npx.hpp islet_tables.hpp
+run_meam1_sweep.o: run_meam1_sweep.cpp islet_isl.hpp islet_types.hpp \
+ islet_interpmethod.hpp islet_maxeigcomp.hpp islet_util.hpp islet_npx.hpp \
+ islet_tables.hpp islet_pum.hpp
+run_np4.o: run_np4.cpp islet_np4.hpp islet_types.hpp islet_isl.hpp \
+ islet_interpmethod.hpp islet_util.hpp islet_npx.hpp islet_tables.hpp \
+ islet_xnodes_metrics.hpp islet_nodalbasis.hpp islet_maxeigcomp.hpp \
+ islet_pum.hpp
+search.o: search.cpp islet_tables.hpp islet_types.hpp islet_npx.hpp \
+ islet_util.hpp islet_interpmethod.hpp islet_maxeigcomp.hpp \
+ islet_xnodes_metrics.hpp islet_nodalbasis.hpp islet_pum.hpp
