@@ -7,6 +7,7 @@
 using namespace netCDF;
 
 #include <stdexcept>
+#include <fstream>
 
 namespace slmm {
 namespace io {

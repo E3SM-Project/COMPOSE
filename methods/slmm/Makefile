@@ -1,9 +1,10 @@
 include make.inc
 
-F90 = gfortran
+SIQK=../../siqk
+BUILD_DIAG=1
 
-CXXFLAGS += $(opt) -Wall -pedantic -fopenmp -std=c++11 -I$(SIQK) -I$(PWD) -I$(KOKKOS)/include -DSIQK_TIME -Wno-unused-function -fPIC
-LDFLAGS += -fopenmp -L$(KOKKOS)/lib -lkokkos -ldl
+CXXFLAGS += -DRELAX_TIME -DSLMM_NP_GT_4 -DSLMM_NP_MAX=16 -fopenmp -std=c++11 -I$(SIQK) -I$(PWD) -I$(KOKKOS)/include -DSIQK_TIME -Wno-unused-function -fPIC
+LDFLAGS += -fopenmp
 
 OS_NAME := $(shell uname -s)
 
