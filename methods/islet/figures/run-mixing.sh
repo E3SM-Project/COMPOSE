@@ -2,6 +2,8 @@ cat $0
 
 exe=../../slmm/slmmir
 
+mkdir -p mixing-0
+
 ctr=0
 function run {
     ctr=$(expr $ctr + 1)

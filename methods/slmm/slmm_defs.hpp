@@ -1,6 +1,9 @@
 #ifndef INCLUDE_SLMM_DEFS_HPP
 #define INCLUDE_SLMM_DEFS_HPP
 
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 #include "siqk.hpp"
 #include "slmm_array.hpp"
 
