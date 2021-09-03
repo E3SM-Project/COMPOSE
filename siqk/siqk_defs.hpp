@@ -21,12 +21,6 @@
 // Always want this for GPU.
 #define SIQK_NONRECURSIVE
 
-#ifdef KOKKOS_HAVE_CUDA
-# define KOKKOS_CONSTANT __constant__ __device__
-#else
-# define KOKKOS_CONSTANT
-#endif
-
 namespace siqk {
 namespace ko = Kokkos;
 #define pr(m) do {                              \
@@ -109,7 +103,7 @@ KOKKOS_INLINE_FUNCTION static void message (const char* const msg)
 typedef int Int;
 typedef double Real;
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
 typedef ko::LayoutLeft Layout;
 #else
 typedef ko::LayoutRight Layout;
@@ -144,7 +138,7 @@ template <typename VT> struct InExeSpace<VT, ko::HostSpace> {
   typedef typename VT::HostMirror type;
 };
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
 // A 1D slice of an array.
 template <typename VT> KOKKOS_FORCEINLINE_FUNCTION
 ko::View<typename VT::value_type*, ko::LayoutStride, typename VT::device_type,
