@@ -1453,13 +1453,17 @@ static Snapshot::Ptr make_midpoint_snapshot (
   return snapshot;
 }
 
-static Basis::Ptr parse_basis (const std::string& basis) {
-  if (basis == "" || basis == "GllNodal")
+static Basis::Ptr parse_basis (const Method::Enum method, const std::string& basis) {
+  if (Method::is_ci(method) || ! Method::is_stabilized(method))
+    return Basis::create(Basis::Type::gll);
+  else if (basis == "" || basis == "GllNodal")
     return Basis::create(Basis::Type::gll_nodal);
   else if (basis == "GllOffsetNodal")
     return Basis::create(Basis::Type::gll_offset_nodal);
   else if (basis == "UniformOffsetNodal")
     return Basis::create(Basis::Type::uniform_offset_nodal);
+  else if (basis == "Gll")
+    return Basis::create(Basis::Type::gll);
   else {
     const auto b = Basis::create_basis_from_string(basis);
     SIQK_THROW_IF( ! b, "Did not get a basis from: " << b);
@@ -1478,7 +1482,7 @@ static void run (const Input& in) {
   pref->experiment = in.p_refine_experiment;
 
   const auto m = std::make_shared<Mesh>();
-  m->basis = parse_basis(in.basis);
+  m->basis = parse_basis(in.integrate_options.method, in.basis);
   init_mesh(in.np, in.tq_order, in.ne, in.nonunimesh, in.mesh_type, *m);
   pref->m_f = m;
 
