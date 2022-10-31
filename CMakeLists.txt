@@ -1,7 +1,8 @@
 cmake_minimum_required (VERSION 3.5)
+include(GNUInstallDirs)
 
 project (compose CXX)
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
 function (prc var)
   message ("${var}: ${${var}}")
@@ -28,10 +29,10 @@ if (Kokkos_DIR)
   include (${Kokkos_DIR}/kokkos_generated_settings.cmake OPTIONAL RESULT_VARIABLE found)
   if ("${found}" STREQUAL "NOTFOUND")
     # v3 kokkos
-    set (Kokkos_LIB_DIR ${Kokkos_DIR}/lib64)
+    set (Kokkos_LIB_DIR ${Kokkos_DIR}/${CMAKE_INSTALL_LIBDIR})
     set (KOKKOS_LIBS_LIST "-lkokkoscore -lkokkoscontainers -ldl")
     set (Kokkos_DIR_save ${Kokkos_DIR})
-    find_package(Kokkos PATHS ${Kokkos_DIR} NO_DEFAULT_PATH)    
+    find_package(Kokkos PATHS ${Kokkos_DIR} NO_DEFAULT_PATH)
     set (Kokkos_DIR ${Kokkos_DIR_save})
     prc(Kokkos_DEVICES)
     string (FIND "${Kokkos_DEVICES}" "CUDA" cuda_str_pos)

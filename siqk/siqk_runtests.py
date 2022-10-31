@@ -32,7 +32,7 @@ if testno == 0:
                         fails.append(cmd)
                     else:
                         cnt += 1
-        print len(fails)
+        print(len(fails))
 
 elif testno == 1:
     for n in [4, 20, 40, 79]:
@@ -45,13 +45,13 @@ elif testno == 1:
                 fails.append(cmd)
             else:
                 cnt += 1
-        print len(fails)
-    
+        print(len(fails))
+
 if len(fails) > 0:
-    print 'FAILED'
+    print('FAILED')
     for f in fails:
-        print f
+        print(f)
     sys.exit(-1)
 else:
-    print 'PASSED ({0:d})'.format(cnt)
+    print('PASSED ({0:d})'.format(cnt))
     sys.exit(0)
