@@ -7,7 +7,13 @@ target_link_libraries (siqk_test ${COMPOSE_LIBRARIES})
 
 configure_file (siqk_runtests.py siqk_runtests.py)
 
+find_package(Python COMPONENTS Interpreter)
+
+if (Python_FOUND)
 add_test (NAME siqk-test-area
-  COMMAND python siqk_runtests.py $<TARGET_FILE:siqk_test> 0)
+  COMMAND ${Python_EXECUTABLE} siqk_runtests.py $<TARGET_FILE:siqk_test> 0)
 add_test (NAME siqk-test-cube
-  COMMAND python siqk_runtests.py $<TARGET_FILE:siqk_test> 1)
+  COMMAND ${Python_EXECUTABLE} siqk_runtests.py $<TARGET_FILE:siqk_test> 1)
+else()
+message(STATUS "python not found; disabling siqk tests.")
+endif()
