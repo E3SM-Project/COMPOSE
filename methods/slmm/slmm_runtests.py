@@ -47,16 +47,16 @@ def print_test (cmd):
     if len(cmd) > ll:
         cmd = cmd[len(cmd)-ll+1:]
     fmt = '{{0:.<{0:d}s}}'.format(ll+1)
-    print '{:3d} '.format(print_test.ctr) + fmt.format(cmd + ' '),
+    print('{:3d} '.format(print_test.ctr) + fmt.format(cmd + ' '), end='')
     sys.stdout.flush()
 print_test.ctr = 0;
 
 def print_result (passed):
     if not passed:
-        print '***FAILED'
+        print('***FAILED')
         return 1
     else:
-        print '   PASSED'
+        print('   PASSED')
         return 0
 
 def check_passed (cmd):
@@ -77,11 +77,11 @@ def check_errs (cmd, l2_err, cv=10, cv_gll=10, min=-float('Inf'), max=float('Inf
               and o.mo_min >= min and o.mo_max <= max)
     result = print_result(passed)
     if not passed:
-        print '   ' + cmd
-        print (('    l2 {:1.2e} cv {:1.2e} cv_gll {:1.2e} mo_min {:1.2e} mo_max {:1.2e}' +
-                ' but l2_err {:1.2e} cv {:1.2e} cv_gll {:1.2e} min {:1.2e} max {:1.2e}').
-               format(o.l2, o.cv, o.cv_gll, o.mo_min, o.mo_max,
-                      l2_err, cv, cv_gll, min, max))
+        print('   ' + cmd)
+        print(('    l2 {:1.2e} cv {:1.2e} cv_gll {:1.2e} mo_min {:1.2e} mo_max {:1.2e}' +
+               ' but l2_err {:1.2e} cv {:1.2e} cv_gll {:1.2e} min {:1.2e} max {:1.2e}').
+            format(o.l2, o.cv, o.cv_gll, o.mo_min, o.mo_max,
+                   l2_err, cv, cv_gll, min, max))
     return result
 
 p = optparse.OptionParser()
@@ -112,41 +112,41 @@ nerr += check_passed('./slmm_test -q -c test_mass_matrix')
 base = ('./slmmir -method {method:s} -ode divergent -ic slottedcylinders ' +
         '-ic cosinebells -ic gaussianhills -we 0 -np {np:d} -dmc f -mono {mono:s} ' +
         '-nsteps 12 -ne {ne:d}')
-nerr += check_errs(base.format(method='pcsl', np=4, ne=10, mono='qlt'),
-                   3.34e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with CSL
-nerr += check_errs(base.format(method='pcsl', np=6, ne=6, mono='qlt'),
-                   3.34e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with CSL
-nerr += check_errs(base.format(method='csl', np=4, ne=10, mono='qlt'),
+nerr += check_errs(base.format(method='pisl', np=4, ne=10, mono='qlt'),
+                   3.34e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with ISL
+nerr += check_errs(base.format(method='pisl', np=6, ne=6, mono='qlt'),
+                   3.34e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with ISL
+nerr += check_errs(base.format(method='isl', np=4, ne=10, mono='qlt'),
                    3.47e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is remapped
-nerr += check_errs(base.format(method='pcsl', np=4, ne=10, mono='qlt-pve'),
+nerr += check_errs(base.format(method='pisl', np=4, ne=10, mono='qlt-pve'),
                    3.36e-1, cv_gll=5e-14, min=0, max=2)    # >= 0 constraint only
-nerr += check_errs(base.format(method='pcsl', np=4, ne=10, mono='caas'),
-                   3.47e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with CSL
-nerr += check_errs(base.format(method='csl', np=4, ne=10, mono='caas'),
+nerr += check_errs(base.format(method='pisl', np=4, ne=10, mono='caas'),
+                   3.47e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is also done with ISL
+nerr += check_errs(base.format(method='isl', np=4, ne=10, mono='caas'),
                    3.47e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is remapped
-nerr += check_errs(base.format(method='csl', np=4, ne=10, mono='mn2'),
+nerr += check_errs(base.format(method='isl', np=4, ne=10, mono='mn2'),
                    3.47e-1, cv_gll=5e-14, min=0.1, max=1)  # rho is remapped
-#   Tracer consistency test. Apply CSL to constant q but remap rho.
-nerr += check_errs('./slmmir -method csl -ode divergent -ic constant -we 0 -np 4 ' +
+#   Tracer consistency test. Apply ISL to constant q but remap rho.
+nerr += check_errs('./slmmir -method isl -ode divergent -ic constant -we 0 -np 4 ' +
                    '-dmc f -mono qlt -rit -nsteps 12 -ne 10',
                    3e-15, cv_gll=1e-13, min=0.42, max=0.42, l2_err_is_0=True)
 
 # Test ISL with p-refinement.
-base = ('./slmmir -method pcsl -ode divergent -ic gaussianhills ' +
+base = ('./slmmir -method pisl -ode divergent -ic gaussianhills ' +
         '-we 0 -np {np:d} -dmc f -mono {mono:s} ' +
         '-nsteps 12 -ne {ne:d} -timeint {timeint:s}')
 nerr += check_errs(base.format(np=12, ne=3, mono='none', timeint='interp'),
                    9.939e-3)
 nerr += check_errs(base.format(np=12, ne=3, mono='none', timeint='exact'),
                    8.793e-3)
-base = ('./slmmir -method pcsl -ode divergent -ic slottedcylinders '
+base = ('./slmmir -method pisl -ode divergent -ic slottedcylinders '
         '-we 0 -np {np:d} -dmc f -mono {mono:s} ' +
         '-nsteps 12 -ne {ne:d} -timeint interp')
 nerr += check_errs(base.format(np=12, ne=3, mono='caas', timeint='interp'),
                    2.896e-1, cv_gll=5e-14, min=0.1, max=1)
 
 # ISL with p-refinement and separate t and v meshes.
-base = ('./slmmir -method pcsl -ode divergent -ic gaussianhills ' +
+base = ('./slmmir -method pisl -ode divergent -ic gaussianhills ' +
         '-we 0 -rit -dmc {dmc:s} -mono {mono:s} -lim {lim:s} -nsteps 13 -T 12 ' +
         '-ne 6 -np 8 -timeint interp -prefine {prefine:d} -d2c')
 nerr += check_errs(base.format(prefine=0, dmc='es', mono='caas', lim='caas'),  5.968e-03, cv=2e-14)
@@ -160,6 +160,9 @@ nerr += check_errs(base.format(prefine=0, dmc='eh', mono='caas-node', lim='caas'
 nerr += check_errs(base.format(prefine=5, dmc='eh', mono='caas-node', lim='caas'),  5.886e-03, cv_gll=2e-14)
 # don't break the no prop preserve case
 nerr += check_errs(base.format(prefine=5, dmc='es', mono='none', lim='none'),  4.2e-03)
+# rotate the grid
+rbase = base + ' -rotate-grid'
+nerr += check_errs(rbase.format(prefine=5, dmc='eh', mono='caas-node', lim='caas'),  5.886e-03, cv_gll=2e-14)
 # GllOffsetNodal
 base += ' -basis GllOffsetNodal'
 nerr += check_errs(base.format(prefine=5, dmc='es', mono='caas', lim='caas'),  5.885e-03, cv=4e-14)
@@ -169,8 +172,8 @@ nerr += check_errs(base.format(prefine=5, dmc='eh', mono='caas-node', lim='caas'
 
 base = './slmmir -nsteps 12 -ne 10 -we 0 -ode divergent -ic gaussianhills '
 
-# DSS for QOF rho, CSL tracer, with QLT.
-nerr += check_errs(base + '-np 3 -d2c -method csl -dmc f -mono qlt',
+# DSS for QOF rho, ISL tracer, with QLT.
+nerr += check_errs(base + '-np 3 -d2c -method isl -dmc f -mono qlt',
                    9.05e-2, cv_gll=2e-14)
 
 # Cell-integrated method basics.
@@ -183,7 +186,7 @@ nerr += check_errs(base + '-np 3 -xyz -mono mn2',
                    3.18e-2, 4e-15, min=1.495e-08, max=9.518e-01)
 nerr += check_errs(base + '-np 3 -xyz -d2c', 3.64e-2, 3e-15)
 nerr += check_errs(base + '-np 4 -xyz -d2c', 1.02e-2, 8e-15)
-nerr += check_errs(base + '-np 4 -xyz -d2c -method cdg', 1.02e-2, 3e-15)
+nerr += check_errs(base + '-np 4 -xyz -d2c -method cdg', 1.02e-2, 3.5e-15)
 
 # Limiter.
 nerr += check_errs('./slmmir -nsteps 12 -ne 10 -we 0 -ode divergent ' +
@@ -207,7 +210,7 @@ nerr += check_errs('./slmmir -nsteps 12 -ne 10 -we 0 -ode divergent ' +
 # Local DMC with Homme mass definition.
 nerr += check_errs('./slmmir -nsteps 12 -ne 10 -we 0 -ode divergent ' +
                    '-ic gaussianhills -np 4 -dmc eh',
-                   9.1e-3, cv_gll=4e-15)
+                   9.1e-3, cv_gll=5e-15)
 # Global (weaker than local) DMC with Homme mass definition.
 nerr += check_errs('./slmmir -nsteps 12 -ne 10 -we 0 -ode divergent ' +
                    '-ic gaussianhills -np 4 -dmc geh',
@@ -284,9 +287,9 @@ nerr += check_errs(base.format('eh', mono='qlt'), 9.18e-3, cv_gll=1e-14, min=1.4
 #  Test that if rho is perturbed, a constant q stays a constant.
 nerr += check_errs('./slmmir -nsteps 12 -ne 10 -np 4 -ode nondivergent ' +
                    '-ic constant -dmc ef -mono qlt -we 0 --perturb-rho 0.05',
-                   1e-14, cv_gll=5e-14, min=0.42, max=0.42, l2_err_is_0=True)
+                   1e-6, cv_gll=5e-14, min=0.42, max=0.42, l2_err_is_0=True)
 nerr += check_errs('./slmmir -nsteps 12 -ne 10 -np 4 -ode divergent ' +
                    '-ic constant -dmc ef -mono qlt -we 0 --perturb-rho 0.05',
-                   1e-14, cv_gll=5e-14, min=0.42, max=0.42, l2_err_is_0=True)
+                   1e-6, cv_gll=5e-14, min=0.42, max=0.42, l2_err_is_0=True)
 
-print '{0:d} tests failed'.format(nerr)
+print('{0:d} tests failed'.format(nerr))

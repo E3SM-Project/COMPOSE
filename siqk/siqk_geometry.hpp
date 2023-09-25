@@ -122,8 +122,8 @@ struct SphereGeometry {
     c[1] = a[2]*b[0] - a[0]*b[2];
     c[2] = a[0]*b[1] - a[1]*b[0];
   }
-  template <typename CV> KOKKOS_INLINE_FUNCTION
-  static Real dot (const CV a, const CV b) {
+  template <typename CVA, typename CVB> KOKKOS_INLINE_FUNCTION
+  static Real dot (const CVA a, const CVB b) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
   }
   template <typename CV> KOKKOS_INLINE_FUNCTION

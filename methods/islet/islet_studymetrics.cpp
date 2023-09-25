@@ -113,26 +113,6 @@ void run_thorough_diagnostics_from_basis_string (const char* basis) {
   auto b = std::make_shared<Basis>(basis);
   if ( ! b->is_ok()) return;
   {
-    const auto np = b->get_np();
-    Real wts[islet::np_max], wr_natural;
-    for (int it = 0; it < 2; ++it) {
-      if (it == 0) {
-        const auto* w = islet::get_w_gll(np);
-        std::copy(w, w + np, wts);
-      } else {
-        calc_weights(b->get_nodes(), b->get_xnodes(), wts);
-      }
-      Real wmin = 10, wmax = -10;
-      for (int i = 0; i < np; ++i) {
-        wmin = std::min(wmin, wts[i]);
-        wmax = std::max(wmax, wts[i]);
-      }
-      if (it == 0) wr_natural = wmax/wmin;
-      printf("    %s wt ratio %1.4e\n", it == 0 ? "natural" : "  islet", wmax/wmin);
-      if (it == 1) printf("    factor %1.4e\n", (wmax/wmin)/wr_natural);
-    }
-  }
-  {
     MaxEigComputer mec;
     const auto meam1 = mec.run(b->get_np(), ne_max, ne_max, 1e-13, true, b);
     printf("meam1 %1.4e\n", meam1);
