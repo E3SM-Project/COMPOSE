@@ -129,24 +129,18 @@
 
 % hy figs-methods.hy write-slmmir-script
 % bash run-slmmir-on-basis-lines.sh > slmmir-on-basis-lines-2.txt
-% hy figs-methods.hy plot-slmmir-vs-heuristic # uses slmmir-on-basis-lines-2.txt
-\begin{figure}[tbh]
+% hy figs-methods.hy plot-slmmir-vs-heuristic-ab # uses slmmir-on-basis-lines-2.txt
+\begin{figure}[tb]
   \centering
-  \includegraphics[width=0.48\linewidth]{slmmir-vs-heuristic-gau-nopp-l2}
-  \caption{$l_2$ norm on the nondivergent flow problem
+  \includegraphics[width=1\linewidth]{slmmir-vs-heuristic-ab}
+  \caption{$l_2$ errors for the nondivergent flow problem
     using basis $\basisns_{\np}$ vs.~$a_2(\basisns_{\np})$,
     for a large number of \abtps~bases and $\np=6$ to $10$.
-    The legend lists the marker type for each $\np$.
-    Large red circles outline the bases in Table \ref{tbl:gll}.
-    The configuration uses the Gaussian hills IC and no property preservation.}
-  \label{fig:slmmir-vs-heuristic-a}
-\end{figure}
-\begin{figure}[tbh]
-  \centering
-  \includegraphics[width=0.48\linewidth]{slmmir-vs-heuristic-cos-pp-l2}
-  \caption{Same as Fig.~\ref{fig:slmmir-vs-heuristic-a} except that the configuration
-    uses the cosine bells IC with property preservation.}
-  \label{fig:slmmir-vs-heuristic-b}
+    The legends list the marker type for each $\np$.
+    Large red circles outline the points corresponding to the bases in Table \ref{tbl:gll}.
+    (a) With the Gaussian hills IC and no property preservation.
+    (b) With the cosine bells IC and property preservation.}
+  \label{fig:slmmir-vs-heuristic}
 \end{figure}
 
 % hy figs-adv-diag.hy figs-acc acc-0.txt
@@ -373,4 +367,75 @@
     A number above a data point reports the $y$-value of that point.
   }
   \label{fig:summit-perf}
+\end{figure}
+
+% hy figs-methods.hy cubed-sphere-subelem-grid-schematic
+\begin{figure}[tb]
+  \centering
+  \includegraphics[width=0.5\linewidth]{cubed-sphere-subelem-grid-schematic}
+  \caption{
+    Cubed-sphere grid (black lines in foreground, gray lines in background)
+    with $\neface\!\times\!\neface$ spectral elements per cube face;
+    $\neface=2$ in this example.
+    The green dashed line outlines the sphere's projection onto the two-dimensional plane of the figure.
+    The upper-right element of the front cubed-sphere face shows the subelement tensor-product Gauss--Lobatto--Legendre (GLL) grid points.
+    In this example, the dynamics solver's subelement grid uses $\npv=4$ (large blue circles) GLL points per dimension,
+    and the transport solver's subelement grid uses $\npt=6$ (small red circles).
+  }
+  \label{fig:cubed-sphere-subelem-grid-schematic}
+\end{figure}
+
+% hy figs-methods.hy isl-1d-schematic
+\begin{figure}[tb]
+  \centering
+  \includegraphics[width=1\linewidth]{isl-1d-schematic}
+  \caption{
+    Illustration of the classical and element-based interpolation semi-Lagrangian methods.
+    See the discussion in Sect.~\ref{sec:setting:sl}.
+  }
+  \label{fig:isl-1d-schematic}
+\end{figure}
+
+% hy figs-methods.hy matrix-schematic
+\begin{figure}[tb]
+  \centering
+  \includegraphics[width=0.5\linewidth]{matrix-schematic}
+  \caption{
+    Correspondence between the ISL space--time operator $\mat{A}$ (top)
+    and the target and source one-dimensional grids (bottom)
+    for one time step of the test problem.
+    In the matrix $\mat{A}$, of which the upper-left corner is pictured,
+    numbered columns correspond to source-grid degrees of freedom (DOF),
+    and numbered rows correspond to target-grid DOF.
+    Nonzeros occur in the red rectangular blocks $\mat{B} \equiv (\mat{\bar{B}} \ \vec{b})$.
+    In this example, the target grid (green dashed line) is advected backward in time
+    so that one subelement grid point moves one element to the left;
+    in the resulting matrix $\mat{A}$, the blocks are shifted one row down.
+  }
+  \label{fig:matrix-schematic}
+\end{figure}
+
+% bash run-instab-imgs.sh
+% hy figs-adv-diag.hy fig-instab
+\begin{figure}[tb]
+  \centering
+  \includegraphics[width=0.75\linewidth]{img-instab}
+  \caption{
+    Images for unstable (top) and stable (bottom) ISL transport.
+    The problem is nondivergent flow with the slotted cylinders IC,
+    with $\neface = 20$, $\npv = \npt = 6$, and the large time step.
+    The snapshot is at the end of day 11 of the first cycle;
+    the images are zoomed to just the region containing the slotted cylinders.
+    The color range is [-0.05, 1.15],
+    which clips the top-left image's range of [-30.4, 32.7].
+    The bases are GLL (top) and Islet (bottom),
+    without (left) and with (right) property preservation.
+    The GLL basis yields an unstable ISL method.
+    Although a nonlinear property preservation step makes the method stable,
+    the linear advection operator's instability still manifests as spurious oscillations.
+    The Islet basis yields a stabilized ISL method;
+    the nonlinear property preservation step now just controls mass conservation and extrema,
+    as intended.
+  }
+  \label{fig:islet-vs-gll-img}
 \end{figure}
