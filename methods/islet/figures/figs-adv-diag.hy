@@ -1,10 +1,12 @@
 (require [amb3 [*]])
 (import amb3 [amb3 [*]]
         [figsutils [*]]
-        math glob struct)
+        math glob struct os)
 
 (assoc matplotlib.rcParams "savefig.dpi" 300)
 (do (pl-require-type1-fonts))
+
+(sv gmd2 True)
 
 ;;; parse cmd, L, M, C slmmir output
 
@@ -119,7 +121,7 @@
   (defn praccv [pne ne vp v]
     (if (or (none? vp) (zero? vp) (zero? v))
         (prfno " {:7.1e} ( ----)" v)
-        (prfno " {:7.1e} ({:5.2f})" v (first (ooa [vp v] :x [ne pne])))))
+        (prfno " {:7.1e} ({:5.2f})" v (first (calc-ooa [vp v] :x [ne pne])))))
   (defn pracc [diagnostic norm pne pe ne e]
     (sv v (geton e diagnostic norm))
     (when (none? v) (return))
@@ -254,27 +256,28 @@
                                      (:measure o))
                       " relative error")
                    :fontsize (:fs o))
+        (pl.xlabel "Dynamics grid resolution" :fontsize (:fs o))
         (cond [(= (:yform o) :log2)
                (pl.yticks (list (range -40 10)) :fontsize (:fs o))])
         (when (and (:ref-cos-033 o) (= (:ic o) "cos") (= (:ode o) "nondivergent"))
-          (pl-plot xtform (* 0.033 (npy.ones (len xtform))) "k-."
+          (pl-plot xtform (* 0.033 (npy.ones (len xtform))) "-."
                    :zorder -10 :lw (:lw o) :color gray)))
       (when (:ooa-text o)
         (sv i (- (len x) 2))
-        (pl.text (- (get xtform (inc i)) 0.1) (* (get ytform (inc i)) 2)
+        (pl.text (+ (get xtform (inc i)) -0.08) (* (get ytform (inc i)) 2)
                  (.format "{:1.1f}"
-                          (- (first (ooa (cut y i (+ i 2))
-                                         :x (cut x i (+ i 2))))))))
+                          (first (calc-ooa (cut y i (+ i 2))
+                                           :x (cut x i (+ i 2)))))))
       (when (= np (last (:nps o)))
+        (when (:ref-ooa-2 o)
+          (sv ytref (y-tfn (* 0.7 (first y-ext) (** (/ (last x) (npa x)) 2))))
+          (pl-plot xtform ytref ":" :color gray))
         (when (= (:yform o) :semilogy)
           (sv (, y ys) (pl.yticks))
           (when (> (/ (last y) (first y)) 1e3)
             (for [i (range (len ys))]
               (sv (get ys i) (.format "{}" (int (math.log10 (get y i))))))
-            (pl.yticks y ys)))
-        (when (:ref-ooa-2 o)
-          (sv ytref (y-tfn (* 0.7 (first y-ext) (** (/ (last x) (npa x)) 2))))
-          (pl-plot xtform ytref "k:" :color gray))))
+            (pl.yticks y ys)))))
     y-ext)
 
   (defn legend [me ax entries &optional [o None] [nps-legend True] bbox]
@@ -321,9 +324,15 @@
   (+ main "\n"
      (flow-short2long (:ode o)) ", "
      (ic-short2long (cut (:ic o) 0 3)) ", "
-     (nstepfac->word (:nstepfac o)) " steps,\n"
-     (if (= (:prefine o) 5) "$p$-refinement, " "")
-     (+ (if (= (:cdrglb o) "none") "no " "") "property preservation")
+     (nstepfac->word (:nstepfac o)) " steps"
+     (if gmd2
+         ""
+         (+ ",\n"
+            (if (= (:prefine o) 5) "$p$-refinement, " "")
+            (+ (if (= (:cdrglb o) "none") "no " "") "property preservation")))
+     (if (and gmd2 (= (:cdrglb o) "none"))
+         ",\nno property preservation"
+         "")
      extra))
 
 (defn fig-stab-cmp [c d]
@@ -343,7 +352,7 @@
     (my-grid)
     (p.legend ax (, (, "k-" "Islet 1 cycle") (, "k--" "Islet 100 cycles")
                     (, "k-." "Natural 1 cycle") (, "k:" "OOA 2")) :o o)
-    (p.title (make-title "Islet stability:" o) o)))
+    (p.title (make-title "Islet method stability:" o) o)))
 
 (defn nextpow10 [f] (** 10.0 (math.ceil  (math.log10 f))))
 (defn prevpow10 [f] (** 10.0 (math.floor (math.log10 f))))
@@ -354,7 +363,8 @@
     general-prefine 5 show-linf True pp True)
   (sv p (AccFig)
       o (p.get-defaults c))
-  (defn plot [o title plot-fn &optional [ref-ooa-2 False]]
+  (defn plot [o title plot-fn &optional [ref-ooa-2 False] xlabel]
+    (svifn xlabel "Dynamics grid resolution")
     (sv fname (+ prefix "acc-" (:ode o) "-" (:ic o)
                  "-" (:timeint o) "-" (if (= (:cdrglb o) "none")
                                           "nopp" "pp")
@@ -368,8 +378,9 @@
       (when ref-ooa-2 (.append legs (, "k:" "OOA 2")))
       (when legend (p.legend ax legs :o o))
       (pl.ylabel "$\log_{10}$ relative error")
+      (pl.xlabel xlabel)
       (p.title (make-title title o) o)))
-  (assoc o :ode "nondivergent" :ic "gau" :nstepfac 1
+  (assoc o :ode "nondivergent" :ic "gau" :nstepfac 5
          :yform :semilogy :cdrglb "none" :cdrlcl "none"
          :timeint "exact" :prefine 0 :filter-floor 1e-11)
   (plot o "Islet empirical order of accuracy:"
@@ -380,7 +391,8 @@
             (p.plot ax d o)
             (pl.ylim (, 1e-11 1))
             (sv e (npy.array [0 -2 -4 -6 -8 -10]))
-            (pl.yticks (** 10.0 e) e))))
+            (pl.yticks (** 10.0 e) e)))
+        :xlabel "Reference resolution")
   (for [nstepfac (, 1 5)
         ic (, "gau" "cos" "slo")
         ode (, "nondivergent" "divergent" "rotate")]
@@ -388,7 +400,7 @@
            :cdrglb (if pp "caas-node" "none") :cdrlcl (if pp "caas" "none")
            :ic ic :filter-floor None :timeint general-timeint)
     (dont when (and (= ode "divergent") (= ic "gau")) (continue))
-    (plot o "Islet accuracy:"
+    (plot o "Islet method accuracy:"
           (fn [ax d o]
             (sv ye [1e10 -1e10])
             (defn update-ye [ye1]
@@ -418,7 +430,7 @@
   (assoc o :ic "gau" :ode "nondivergent" :cdrglb "none" :cdrlcl "none"
          :measure :l2 :yform :semilogy :nstepfac 1)
   (sv nps-str (make-nps-string (:nps o)))
-  (with [(pl-plot (:figsize o) (+ c.fig-dir "midpoint-check"))]
+  (with [(pl-plot (, 4 4.5) (+ c.fig-dir "midpoint-check"))]
     (sv ax (pl.subplot 1 1 1))
     (assoc o :pat-line "-" :C-line :C :ooa-text True :prefine 0 :timeint "exact" :nps [4])
     (p.plot ax d o)
@@ -430,10 +442,13 @@
     (p.plot ax d o)
     (assoc o :prefine 5 :timeint "interp" :nps c.nps)
     (p.plot ax d o)
+    (print (pl.xlim))
     (pl.ylim (, 5e-10 1))
     (my-grid)
     (p.legend ax (, (, "k-" "1 cycle") (, "k--" "1/2 cycle")) :o o)
-    (p.title (make-title "Trajectory interpolation:" o) o)))
+    (p.title (make-title "Trajectory interpolation:" o) o)
+    (sv xl (pl.xlim))
+    (pl.xlim (, (first xl) (* 1.02 (second xl))))))
 
 (defn fig-acc-mimic-src-term-midpoint [c d &optional [np-minus-2 False]]
   (sv p (AccFig)
@@ -454,6 +469,7 @@
       (when ref-ooa-2 (.append legs (, "k:" "OOA 2")))
       (p.legend ax legs :o o)
       (pl.ylabel "$\log_{10}$ $l_2$ relative error")
+      (pl.xlabel "Dynamics grid resolution")
       (p.title title o)))
   (for [nstepfac (, 5)
         ic (, "gau")
@@ -779,7 +795,7 @@
                  "nondivergent flow, 1$^\circ$, 576 time steps/cycle\n"
                  "$p$-refinement, property preservation")
               :fontsize (:fs o))
-    (p.legend ax (, (, "k-" "$l_2$") (, "k:" "$l_\infty$"))
+    (p.legend ax (, (, "k-" "$c_2$") (, "k:" "$c_\infty$"))
               :o o :bbox (, 0 0.8))
     (pl.ylim (, (** 10.0 -16) (** 10.0 -3)))
     (pl.xlim (, -0.2 10.2))
@@ -922,6 +938,171 @@
                     "Nondivergent flow")
                  :ha "center" :fontsize (:fs o))))))
 
+;;; images of instability
+
+(defn img-instab [c fname-meta-pairs outname]
+  (sv ncol 2 nrow 2 npanel (* ncol nrow) img-idx 7
+      w (/ 1 ncol) h (/ 1 nrow)
+      vmin -0.05 vmax 1.15)
+  (with [(pl-plot (, (* 3.2 ncol) (+ (* 2.1 nrow) 1)) outname :tight False)]
+    (sv axs [])
+    (for [spi (range npanel)]
+      (sv row (// spi ncol) col (% spi ncol))
+      (.append axs (pl.axes [(* w col) (- 1 (* h row)) (* 0.95 w) h]))
+      (sv mp (nth fname-meta-pairs spi)
+          img (nth (read-slmmir-io-arrays (first mp)) img-idx)
+          n (second img.shape)
+          img (get img (, (s-all)
+                          (+ (list (range (// n 2) n))
+                             (list (range 0 (// n 2))))))
+          img (get img (, (slice 60 450) (slice 120 750))))
+      (print "img range" (npy.min img) (npy.max img))
+      (draw-slmmir-image img :switch-halves False :grid False
+                         :vmin vmin :vmax vmax)
+      (pl.text 20 (- (first img.shape) 50)
+               (second mp)
+               :fontsize 15 :bbox {"facecolor" "white"}))
+    (when (= (inc spi) npanel)
+      (sv ticks (npy.linspace 0 1.1 12)
+          c (pl.colorbar :ax axs :orientation "horizontal" :aspect 20
+                         :shrink 0.8 :pad 0.05 :anchor (, 0.5 1.3)
+                         :ticks ticks))
+      (c.ax.tick-params :labelsize 14))))
+
+;;; stability grinding fig
+
+(defn file-exists? [fname] (os.path.exists fname))
+
+(defn make-out-fname [ode nonuni ne np timeint prefine cdrglb cdrlcl basis
+                      nstepfac ncycle]
+  (+ "ode_" ode "-nonuni_" (str (if nonuni 1 0)) "-ne_" (str ne) "-np_" (str np)
+     "-timeint_" timeint "-prefine_" (str prefine)
+     "-cdrglb_" cdrglb "-cdrlcl_" cdrlcl "-basis_" basis
+     "-nstepfac_" (str nstepfac) "-ncycle_" (str ncycle) ".out"))
+
+(defn stabgrind-make-spec [batchdir ode basis np nstepfac nes
+                           &optional timeint prefine cdrs nonuni ncycle]
+  (svifn timeint "exact" prefine 0 cdrs (, "none" "none") nonuni False ncycle 100)
+  (sv s (box-slots 'batchdir 'ode 'basis 'np 'nstepfac 'nes 'timeint 'prefine
+                   'cdrs 'nonuni 'ncycle)
+      s.type 'stabgrind-spec)
+  s)
+
+(defn stabgrind-keys [s]
+  (, s.timeint s.ode s.nstepfac s.basis (first s.cdrs) (second s.cdrs)
+     s.prefine s.np))
+
+(defn stabgrind-parse [s ne &optional d]
+  (svifn d {})
+  (sv fname (->> (make-out-fname s.ode s.nonuni ne s.np s.timeint s.prefine
+                                 (first s.cdrs) (second s.cdrs) s.basis s.nstepfac
+                                 s.ncycle)
+                 (+ s.batchdir "/")))
+  (unless (file-exists? fname)
+    (prf "Can't read {}" fname)
+    (return d))
+  (sv txt (.split (readall fname) "\n")
+      keys (stabgrind-keys s))
+  (for [ln txt]
+    (unless (= (cut ln 0 2) "C ") (continue))
+    (cond [(in "cycle" ln) (sv (, - - cyc) (sscanf ln "s,s,i"))]
+          [(or (in "PASS" ln) (in "FAIL" ln))
+           (sv (, - pf) (sscanf ln "s,s"))
+           (when (and (= pf "FAIL") (!= (first s.cdrs) "none") (<= cyc 10))
+             (prf "FAIL {}" cmd))]
+          [:else
+           (sv cl (parse-C ln))
+           (assoc-nested-append d (+ keys (, (:ic cl) ne)) cl)]))
+  d)
+
+(defn stabgrind-read [s]
+  (assert (= s.type 'stabgrind-spec))
+  (sv d (Box)
+      d.type 'stabgrind-read
+      d.s s
+      d.data {})
+  (for [ne s.nes]
+    (sv d.data (stabgrind-parse s ne :d d.data)))
+  d)
+
+(defn stabgrind-fig [c ds outname &optional ic]
+  (svifn ic "gau")
+  (sv nes (, 5 10 20 40 60 80)
+      yl (, 1e-11 1)
+      fsz (, 8 4) sbs (, 1 2)
+      ;;fsz (, 4 8) sbs (, 2 1)
+      fs 12
+      np (. (first ds) s np))
+  (defn xticks-ne []
+    (sv xa (nes->degstrs nes))
+    (pl.xticks (npy.log2 (:ne xa)) (:deg xa) :fontsize fs))
+  (defn xticks-cnt []
+    (sv xa (npy.array (list (, 1 10 100))))
+    (pl.xticks xa xa :fontsize fs))
+  (defn yticks []
+    (sv ya (npy.array (list (range -13 1))))
+    (pl.yticks (** 10.0 ya) ya :fontsize fs))
+  (defn make-pat [basis nstepfac &optional [marker False]]
+    (+ (get {1 "k" 3 "g" 5 "r"} nstepfac)
+       (if marker
+         (get {1 "o" 3 "v" 5 "s"} nstepfac)
+         "")
+       (get {"Gll" ":" "GllNodal" "-"} basis)))
+  (for [d ds]
+    (assert (= d.type 'stabgrind-read))
+    (sv s d.s keys (stabgrind-keys s)
+        x [] cls [])
+    (for [ne nes]
+      (sv cl (geton d.data #*(+ keys (, ic ne))))
+      (when (none? cl) (continue))
+      (.append x ne)
+      (.append cls cl))
+    (sv d.nes x d.cls cls))
+  (with [(pl-plot fsz outname)]
+    (pl.subplot #*sbs 1)
+    (for [d ds]
+      (sv s d.s keys (stabgrind-keys s)
+          ncyc (len (get d.data #*(+ keys (, ic (first d.nes))))))
+      (for [cyc (, 1 10 100)]
+        (when (> cyc ncyc) (break))
+        (sv y [])
+        (for [cl d.cls]
+          (.append y (:l2 (nth cl (dec cyc)))))
+        (prf "{} {:1d} {:3d} {:1.4e}" s.basis s.nstepfac cyc (last y))
+        (pl.semilogy (npy.log2 d.nes) y
+                     (make-pat s.basis s.nstepfac :marker True)
+                     :fillstyle "none")))
+    (do
+     (sv xl (pl.xlim))
+     (for [basis (, "Gll" "GllNodal") nstepfac (, 1 5)]
+       (pl.plot 0 10 (make-pat basis nstepfac)
+                :label (+ (get {"Gll" "GLL" "GllNodal" "Islet"} basis)
+                          " $n_p$ " (str np) " "
+                          (get {1 "long" 5 "short"} nstepfac))))
+     (pl.legend :loc "upper right" :fontsize fs :framealpha 0)
+     (pl.xlim xl))
+    (sv letter-y (* (second yl) 0.5)
+        f (pl.gcf))
+    (f.text 0.02 0.05 "(a)" :fontsize fs)
+    (xticks-ne) (yticks) (pl.ylim yl) (my-grid)
+    (pl.xlabel "Reference resolution" :fontsize fs)
+    (pl.ylabel "log$_{10}$ $l_2$ relative error" :fontsize fs)
+    (pl.title "Error vs. resolution at 1, 10, and 100 cycles"
+              :fontsize fs)
+    (pl.subplot #*sbs 2)
+    (for [d ds]
+      (sv s d.s)
+      (for [cls d.cls]
+        (sv y [])
+        (for [cl cls] (.append y (:l2 cl)))
+        (pl.loglog (range 1 (inc (len y))) y (make-pat s.basis s.nstepfac))))
+    (f.text 0.52 0.05 "(b)" :fontsize fs)
+    (pl.xlabel "Cycle" :fontsize fs)
+    (pl.ylabel "log$_{10}$ $l_2$ relative error" :fontsize fs)
+    (pl.title "Error vs. cycle at resolutions in (a)"
+              :fontsize fs)
+    (xticks-cnt) (yticks) (pl.ylim yl) (my-grid)))
+
 ;;; miscellaneous figs likely not to go in the paper
 
 (defn img-slo-cyl-tracer-grid [c direc outname &optional [ne 10]]
@@ -937,8 +1118,9 @@
                (, 16 "interp" "caas-node" 5)
                (, 16 "interp" "caas-node" 1))]
       (.append nps (first c))
-      (.append imgss (read-slmmir-io-arrays (make-fname direc ne (first c)
-                                              nstepfac (second c) (nth c 2) (last c)))))
+      (.append imgss (read-slmmir-io-arrays
+                      (make-fname direc ne (first c) nstepfac (second c)
+                                  (nth c 2) (last c)))))
     (sv spi 0)
     (for [idx (, 1 3 5)
           (, i imgs) (enumerate imgss)]
@@ -1033,3 +1215,48 @@
   (sv c (get-context)
       d (parse-footprint (+ c.data-dir fname)))
   (fig-comm-footprint c d))
+
+(when-inp ["img-filament-tracer-grid" {:direc str}]
+  (sv c (get-context))
+  (for [ne (, 5 10)]
+    (img-slo-cyl-tracer-grid
+      c direc (+ c.fig-dir (.format "img-filament-tracer-grid-ne{}" ne)) :ne ne)))
+
+(when-inp ["figs-double" {:fname str}]
+  (sv c (get-context)
+      c.nps (, 4 6 7 8 9 10 11 12 13)
+      d (acc-parse (+ c.data-dir fname)
+                   :map-nstepfac (if 0
+                                     (fn [n] (get {0.5 1 1 1 2.5 5 5 5} n))
+                                     (fn [n] (if (<= n 1) 1 5)))))
+  (figs-acc c d :prefix "ne2x-dt1x-" :ref-ooa-2 False :legend False
+            :general-timeint "exact" :general-prefine 0 :show-linf False
+            :pp True))
+
+(when-inp ["fig-instab"]
+  (sv c (get-context)
+      pairs [["none-cyc1-Gll" "GLL"]
+             ["caas-node-cyc1-Gll" "GLL-CAAS-node"]
+             ["none-cyc1-GllNodal" "Islet"]
+             ["caas-node-cyc1-GllNodal" "Islet-CAAS-node"]])
+  (for [p pairs]
+    (sv (get p 0) (+ c.data-dir "instab-imgs/instab-nondiv-ne20np6-"
+                     (first p) ".bin")))
+  (img-instab c pairs (+ c.fig-dir "img-instab")))
+
+(when-inp ["fig-stabgrind"]
+  (sv c (get-context)
+      ode "nondivergent"
+      np 11
+      nes (, 5 10 20 40 80)
+      ds [])
+  (for [basis (, "Gll" "GllNodal")
+        nstepfac (, 1 5)
+        ]
+    (sv s (stabgrind-make-spec
+           (+ "data/mar21/batch1" (if (= basis "Gll") "6" "5"))
+           ode basis np nstepfac nes
+           :ncycle (if (= basis "Gll") 20 100))
+        d (stabgrind-read s))
+    (unless (none? d) (.append ds d)))
+  (stabgrind-fig c ds (+ c.fig-dir "fig-stabgrind")))
