@@ -4,6 +4,7 @@
 #include "slmm_defs.hpp"
 
 #include <stdexcept>
+#include <fstream>
 
 #define require(condition) do {                                         \
     if ( ! (condition)) {                                               \
@@ -77,22 +78,7 @@ inline Real reldif (const Real a, const Real b, const Real abstol = 0)
 { return std::abs(b - a)/(abstol + std::abs(a)); }
 
 // Row-major R.
-inline void form_rotation (const Real axis[3], const Real angle, Real r[9]) {
-  const Real nrm = std::sqrt(square(axis[0]) + square(axis[1]) +
-                             square(axis[2]));
-  const Real& x = axis[0] / nrm, & y = axis[1] / nrm, & z = axis[2] / nrm,
-    & th = angle;
-  const Real cth = std::cos(th), sth = std::sin(th), omcth = 1 - cth;
-  r[0] = cth + x*x*omcth;
-  r[3] = y*x*omcth + z*sth;
-  r[6] = z*x*omcth - y*sth;
-  r[1] = x*y*omcth - z*sth;
-  r[4] = cth + y*y*omcth;
-  r[7] = z*y*omcth + x*sth;
-  r[2] = x*z*omcth + y*sth;
-  r[5] = y*z*omcth - x*sth;
-  r[8] = cth + z*z*omcth;
-}
+void form_rotation(const Real axis[3], const Real angle, Real r[9]);
 
 void fill_normals(const AVec3s& p, const AIdxs& e, AVec3s& nml, AIdxs& en);
 
@@ -123,8 +109,9 @@ inline T* tin (T* const p, const char* const msg="") {
 
 inline bool
 eq (const std::string& a, const char* const b1, const char* const b2 = 0) {
-  return (a == std::string(b1) || (b2 && a == std::string(b2)) ||
-          a == std::string("-") + std::string(b1));
+  return ((a == std::string(b1)) ||
+          (b2 && a == std::string(b2)) ||
+          (a == std::string("-") + std::string(b1)));
 }
 
 std::string& tolower(std::string& s);

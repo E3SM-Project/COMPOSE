@@ -105,8 +105,7 @@ static void remove_unused_vertices (AVec3s& p, AIdxs& e,
   }
 }
 
-void make_cubedsphere_mesh (AVec3s& p, AIdxs& e,
-                            const Int n) {
+void make_cubedsphere_mesh (AVec3s& p, AIdxs& e, const Int n) {
   // Transformation of the reference mesh make_planar_mesh to make each of the
   // six faces.
   const Real d = 1.0 / std::sqrt(3.0);
@@ -780,7 +779,15 @@ inline void map_sphere_coord_to_face_coord (
 }
 } // namespace
 
-Int get_cell_idx (const Int ne, Real x, Real y, Real z) {
+Int get_cell_idx (const Int ne, const Real angle, const Real* const R,
+                  Real x, Real y, Real z) {
+  if (angle != 0) {
+    // R'(x,y,z) to bring the point to the unrotated grid.
+    Real v[3] = {x,y,z};
+    x = R[0]*v[0] + R[3]*v[1] + R[6]*v[2];
+    y = R[1]*v[0] + R[4]*v[1] + R[7]*v[2];
+    z = R[2]*v[0] + R[5]*v[1] + R[8]*v[2];
+  }
   const Int face_idx = get_cube_face_idx(x, y, z);
   Real fx, fy;
   map_sphere_coord_to_face_coord(face_idx, x, y, z, fx, fy);
@@ -822,6 +829,21 @@ void make_nonuniform (AVec3s& geo_p) {
       for (int j = 0; j < 3; ++j) a += R[3*d+j]*p0[j];
       p[d] = a;
     }
+  }
+}
+
+void rotate_grid (const Real axis[3], const Real angle, Real* R, AVec3s& geo_p) {
+  form_rotation(axis, angle, R);
+  const Int n = nslices(geo_p);
+  for (Int i = 0; i < n; ++i) {
+    auto p = slice(geo_p,i);
+    Real p0[3];
+    for (int d = 0; d < 3; ++d) p0[d] = p[d];
+    for (Int d = 0; d < 3; ++d) {
+      const Real* const row = R + 3*d;
+      p[d] = siqk::SphereGeometry::dot(row, p0);
+    }
+    siqk::SphereGeometry::normalize(p);
   }
 }
 

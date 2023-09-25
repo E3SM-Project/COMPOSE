@@ -1,13 +1,20 @@
 #ifndef INCLUDE_SLMM_DEFS_HPP
 #define INCLUDE_SLMM_DEFS_HPP
 
+#include "siqk.hpp"
+#include "slmm_array.hpp"
 #ifdef _OPENMP
 # include <omp.h>
 #endif
-#include "siqk.hpp"
-#include "slmm_array.hpp"
+
+#define ompparfor  _Pragma("omp parallel for")
+#define omppar     _Pragma("omp parallel")
+#define ompfor     _Pragma("omp for")
+#define ompbarrier _Pragma("omp barrier")
+#define ompsingle  _Pragma("omp single")
 
 namespace slmm {
+
 using siqk::Int;
 using siqk::Real;
 typedef Int Size;
@@ -48,6 +55,7 @@ inline ConstVec3s::HostMirror a2ConstVec3s (const Array2Dim<Real,3>& a)
 { return Vec3s::HostMirror(const_cast<Real*>(a.data()), nslices(a)); }
 inline ConstIdxs::HostMirror a2ConstIdxs (const Array2D<Int>& a)
 { return Idxs::HostMirror(const_cast<Int*>(a.data()), nslices(a), szslice(a)); }
+
 } // namespace slmm
 
 #endif

@@ -9,6 +9,8 @@
 #include "slmmir_d2c.hpp"
 #include "slmmir.hpp"
 
+struct C2DRelations { AIdxArray ptr, r; };
+
 // Orchestrate the remap operation in one time step.
 //   "np basis" is the full nonmonotonic basis.
 //   "npmono basis" is the monotonic basis used in the cell mean boundedness
@@ -36,12 +38,15 @@ class Remapper {
     rho_src_cmbc_,      // Corrected, in the np basis.
     rho_tgt_cmbc_;      // Density in target cell given by cmbc sources.
 
-  // For CSL.
-  struct C2DRelations { AIdxArray ptr, r; };
+  // For ISL.
+public:
+  class IslImpl;
+private:
+  std::shared_ptr<IslImpl> isl_impl_;
   C2DRelations c2d_v_, c2d_f_;
   AIdxArray cn_src_cell_;
   ARealArray2 q_data_;
-  ARealArray Je_, density_factor_;
+  ARealArray Je_, Jdep_;
 
   Real perturb_rho_;
   bool record_total_mass_redistribution_;
@@ -79,11 +84,8 @@ private:
     Real* const src_tracer, Real* const tgt_tracer, const Int ntracers,
     Real* const src_density, Real* const tgt_density);
 
-  class IslImpl;
-  std::shared_ptr<IslImpl> isl_impl_;
-
-  void init_csl();
-  void init_csl_jacobian(const Mesh& m);
+  void init_isl();
+  void init_isl_jacobian(const Mesh& m);
   static void make_c2d_relations(
     const Int cnn, const AIdxArray& dglln2cglln,
     C2DRelations& c2d);
@@ -92,16 +94,16 @@ private:
     const Mesh& m, const C2DRelations& c2d, const AVec3s& advected_p,
     const Real* const src_tracer, Real* const tgt_tracer, const Int ntracers,
     const Real* const src_density, Real* const tgt_density,
-    const bool rho_csl = false);
+    const bool rho_isl = false);
 
   // Constrained density reconstruction for classical semi-Lagrangian.
-  void csl_cdr(
+  void isl_cdr(
     const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
     const MonoData& md, const spf::MassRedistributor::Ptr& mrd,
     Real* const src_density, Real* const src_tracer, const Int np_src,
     Real* const tgt_density, Real* const tgt_tracer, const Int ntracers,
-    const bool positive_only, const bool rho_csl, const Filter::Enum cdr_method);
-  void csl_cdr_rho(
+    const bool positive_only, const bool rho_isl, const Filter::Enum cdr_method);
+  void isl_cdr_rho(
     const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
     const MonoData& md, const spf::MassRedistributor::Ptr& mrd,
     Real* const src_density, const Int np2_src,
@@ -128,10 +130,10 @@ public:
              Real* const src_tracer, Real* const tgt_tracer, const Int ntracers,
              Real* const src_density, Real* const tgt_density);
     
-  void csl(const AVec3s& advected_p, Real* const src_tracer,
+  void isl(const AVec3s& advected_p, Real* const src_tracer,
            Real* const tgt_tracer, const Int ntracers,
            Real* const src_density, Real* const tgt_density,
-           const bool positive_only, const bool rho_csl,
+           const bool positive_only, const bool rho_isl,
            const Real* toychem_tendency, Int toychem_idx_beg, Int toychem_idx_end,
            const pg::PhysgridData::Ptr& pg);
 

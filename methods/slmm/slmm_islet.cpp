@@ -28,6 +28,55 @@ Int GllOffsetNodal::max_degree (const Int& np) const {
   return degrees[np];
 }
 
+static Real normalize_x (const Real* gll_x, const Real& x) {
+  const Real x0 = gll_x[1];
+  return (x - x0) / (1 - x0);
+}
+
+static void outer_eval (const Real* gll_x, const Real& x, Real v[4]) {
+  const Real
+    xbar = normalize_x(gll_x, gll_x[2]),
+    ooxbar = 1 / xbar,
+    ybar = 1 / (xbar - 1),
+    xn = normalize_x(gll_x, x);
+  v[0] = 0;
+  v[1] = 1 + ybar*xn*((1 - ooxbar)*xn + ooxbar - xbar);
+  v[2] = ybar*ooxbar*xn*(xn - 1);
+  v[3] = ybar*xn*(xbar - xn);
+}
+
+#if 0
+static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
+                              Real y[4]) {
+  static constexpr Real
+    alpha = 0.5527864045000416708,
+    v = 0.427*(1 + alpha),
+    x2 = 0.4472135954999579277, // 1/sqrt(5)
+    x3 = 1 - x2,
+    det = x2*x3*(x2 - x3),
+    y2 = alpha,
+    y3 = v,
+    c1 = (x3*y2 - x2*y3)/det,
+    c2 = (-x3*x3*y2 + x2*x2*y3)/det;
+  if (x < x_gll[1] || x > x_gll[2]) {
+    Real y4[4];
+    GLL::eval_lagrange_poly(4, x_gll, x, y4);
+    if (x < x_gll[1]) {
+      outer_eval(x_gll, -x, y);
+      std::swap(y[0], y[3]);
+      std::swap(y[1], y[2]);
+    } else
+      outer_eval(x_gll, x, y);
+    const Real x0 = 1 - std::abs(x);
+    const Real a = (c1*x0 + c2)*x0;
+    for (int i = 0; i < 4; ++i)
+      y[i] = a*y[i] + (1 - a)*y4[i];
+  }
+  else
+    GLL::eval_lagrange_poly(4, x_gll, x, y);
+  return true;
+}
+#else
 static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
                               Real y[4]) {
   static const Real c1 = 0.306;
@@ -45,6 +94,7 @@ static bool np4_subgrid_eval (const Real* const x_gll, const Real& x,
     GLL::eval_lagrange_poly(4, x_gll, x, y);
   return true;
 }
+#endif
 
 bool GllOffsetNodal::eval (const Int& np, const Real& x, Real* const v) const {
   const Real* xnode;

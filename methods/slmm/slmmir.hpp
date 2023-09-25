@@ -107,33 +107,37 @@ struct MeshType {
 };
 
 struct Method {
-  enum Enum { ir, cdg, csl,
-              pcsl, /* stabilized interpolation SL (ISL) */
-              pcslu /* unstable ISL for testing and comparison */ };
+  enum Enum { ir, cdg, isl,
+              pisl, /* stabilized interpolation SL (ISL) */
+              pislu /* unstable ISL for testing and comparison */ };
   static std::string convert (const Enum& e) {
     switch (e) {
     case Enum::ir: return "ir";
     case Enum::cdg: return "cdg";
-    case Enum::csl: return "csl";
-    case Enum::pcsl: return "pcsl";
-    case Enum::pcslu: return "pcslu";
+    case Enum::isl: return "isl";
+    case Enum::pisl: return "pisl";
+    case Enum::pislu: return "pislu";
     default: throw std::runtime_error("Method: Not a valid enum.");
     }
   }
   static Enum convert (const std::string& s) {
     if (eq(s, "ir")) return Enum::ir;
     if (eq(s, "cdg")) return Enum::cdg;
-    if (eq(s, "csl")) return Enum::csl;
-    if (eq(s, "pcsl")) return Enum::pcsl;
-    if (eq(s, "pcslu")) return Enum::pcslu;
+    if (eq(s, "isl")) return Enum::isl;
+    if (eq(s, "pisl")) return Enum::pisl;
+    if (eq(s, "pislu")) return Enum::pislu;
+    // Aliases.
+    if (eq(s, "csl")) return Enum::isl;
+    if (eq(s, "pcsl")) return Enum::pisl;
+    if (eq(s, "pcslu")) return Enum::pislu;
     throw std::runtime_error(std::string("Method: Not a valid string: ") + s);
   }
-  static bool is_csl (const Enum& e) { return e == csl || e == pcsl || e == pcslu; }
-  static bool is_pcsl (const Enum& e) { return e == pcsl || e == pcslu; }
-  static bool is_stabilized (const Enum& e) { return e != pcslu; }
+  static bool is_isl (const Enum& e) { return e == isl || e == pisl || e == pislu; }
+  static bool is_pisl (const Enum& e) { return e == pisl || e == pislu; }
+  static bool is_stabilized (const Enum& e) { return e != pislu; }
   static bool is_ir (const Enum& e) { return e == ir; }
   // Is cell-integrated.
-  static bool is_ci (const Enum& e) { return ! is_csl(e); }
+  static bool is_ci (const Enum& e) { return ! is_isl(e); }
 };
 
 struct Filter {

@@ -102,7 +102,7 @@ inline void aixiy (const Size n,
  *       bool eval(Real t, const Real* y, Real* f) const
  *   to evaluate f(t), the ODE at time t. Return false on failure.
  * - method
- *       record(Real t, const Real* y)
+ *       record(Real t, const Real* y) const
  *   to optionally record y(t).
  *
  * \param opts [in] Options struct.
