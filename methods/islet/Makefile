@@ -28,6 +28,9 @@ pum_sweep: libislet pum_sweep.o
 cslunstab: cslunstab.o
 	$(CXX) cslunstab.o $(LDFLAGS) $(LINK_LAPACK_BLAS) -fopenmp -o cslunstab
 
+pum_perturb_plot: libislet pum_perturb_plot.o
+	$(CXX) pum_perturb_plot.o $(LDFLAGS) $(LINK_LAPACK_BLAS) -L. -lislet -fopenmp -o pum_perturb_plot
+
 clean:
 	rm -f *.o *.so search np4 pum_sweep pum_perturb_plot run_meam1_sweep
 

@@ -53,15 +53,15 @@ installation, then
     ln -s make.inc.gnu make.inc
     make -j16
 Optionally run regression tests:
-    OMP_NUM_THREADS=16 KMP_AFFINITY=balanced python2 slmm_runtests.py
+    OMP_NUM_THREADS=16 KMP_AFFINITY=balanced python slmm_runtests.py
 Bash scripts in the methods/islet/figures directory call the slmmir program.
 
 We use the language hy to create the figures. hy is a Lisp that compiles to
 Python AST. We used hy 0.18.0 ('pip install hy' for the latest version) with
 CPython 3.7.6 provided by Anaconda 3.
 
-The code used to obtain performance data on Summit will be part of main E3SM
-soon. The exact version used to generate the data is archived here:
+The code used to obtain performance data on Summit is part of the main E3SM
+repo. The exact version used to generate the data is archived here:
     https://github.com/ambrad/E3SM/releases/tag/islet-2d-paper-summit-sl-gpu-timings
 The data are here:
     https://github.com/E3SM-Project/perf-data/tree/main/nhxx-sl-summit-mar2021
