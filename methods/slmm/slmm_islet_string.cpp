@@ -116,7 +116,7 @@ bool Nodes::init (const std::string& s) {
     ss.get();
   };
   np = read_int();
-  if (np < 2 || np >= 13) return false;
+  if (np < 2 || np > Basis::np_max || (np > 13 && np != 16)) return false;
   Int include_bdy = read_int();
   assert(include_bdy);
   init(np);

@@ -150,9 +150,9 @@ void calc_sphere_to_ref (
 } // namespace test
 
 /* The jacobian when all nodes are moved. Use the interp formula for
-   position. Let (a,b) in [-1,1]^2. Let va be the GLL basis value at a, and
+   position. Let (a,b) in [-1,1]^2. Let va be the GLL basis values at a, and
    similarly for b. Let p(:,i) be the physical location of the i'th node. Then
-       f(a,b) = sum_{i=1}^np sum_{j=1}^np p(:, np*(j-1) + i) va[i] vb[j].
+       f(a,b) = sum_{i=1}^np sum_{j=1}^np p(:, np*(j-1) + i) va[i] vb[j]
        g(a,b) = norm(f(a,b))
        q = f(a,b) / g(a,b).
    Derivatives:
@@ -160,7 +160,7 @@ void calc_sphere_to_ref (
        g_a = g_f f_a
        g_f = 1/2 (f'f)^(-1/2) 2 f = f/norm(f)
    and similarly for q_b. In this case, we have
-      f_a = sum_{i=1}^np sum_{j=1}^np p(:, np*(j-1) + i) va_a[i] vb[j],
+       f_a = sum_{i=1}^np sum_{j=1}^np p(:, np*(j-1) + i) va_a[i] vb[j],
    and va_a comes from the GLL polynomial.
 */
 template <typename Cell>
@@ -260,19 +260,18 @@ void calc_isoparametric_sphere_to_ref (
 }
 
 void Remapper::
-init_csl_jacobian (const Mesh& m) {
+init_isl_jacobian (const Mesh& m) {
   const Int dnn = nslices(m.dglln2cglln);
-  resize(density_factor_, dnn);
+  resize(Jdep_, dnn);
   resize(Je_, dnn);
   const Int np = m.np, np2 = square(np);
-  GLL gll;
-  const Real* gll_x, * gll_wt;
-  gll.get_coef(m.np, gll_x, gll_wt);
+  const Real* xnode;
+  m.basis->get_x(m.np, xnode);
   for (Int i = 0; i < dnn; ++i) {
     const Int ti = i / np2;
     const auto& cell = slice(m.cgll_c2n, ti);
     const Int ni = i % np2;
-    const Real ta = gll_x[ni % np], tb = gll_x[ni / np];
+    const Real ta = xnode[ni % np], tb = xnode[ni / np];
     if (md_) {
       // The correct, but increasingly expensive with np, method to compute
       // the density correction. Must use this if property preservation is on.
@@ -467,49 +466,6 @@ adjust_mass_nonbdy (const Real* w_s, const Real* r_s, const Int np2_s,
 #endif
 }
 
-class Source {
-  const Real* dq;
-  pg::PhysgridData::Ptr pg;
-  Int nf, nf2;
-
-  static Int idx (const Int& nf, const Real& ref_coord) {
-    const Real p = (1 + ref_coord)/2;
-    const Int i = std::max(0, std::min(nf-1, Int(nf*p)));
-    return i;
-  }
-
-public:
-  Source (const Real* dq_, pg::PhysgridData::Ptr pg_)
-    : dq(dq_), pg(pg_), nf(pg->ops->nphys), nf2(square(nf))
-  {
-    assert(idx(2,-0.11) == 0); assert(idx(2,0.11) == 1);
-    assert(idx(2,-1.01) == 0); assert(idx(2,1.01) == 1);
-    assert(idx(4,-0.24) == 1); assert(idx(4,0.74) == 3);
-  }
-
-  Real interp (const Int& cell_idx, const Real& a, const Real& b) const {
-    const Int sub_idx = nf*idx(nf, b) + idx(nf, a);
-    return dq[cell_idx*nf2 + sub_idx];
-  }
-
-  Real cell_mass (const int ic) const {
-    assert(0); return 0;
-  }
-
-  Real global_mass () const {
-    Real mass;
-    accumulate_threaded_bfb<1>(
-      [&] (const Int i, Real* a) {
-        *a += pg->ops->mesh_data->fv_metdet[i] * pg->rho[i] * dq[i];
-      },
-      len(pg->ops->mesh_data->fv_metdet), &mass);
-    mass /= square(pg->ops->nphys);
-    return mass;
-  }
-};
-
-typedef std::vector<std::shared_ptr<Source> > Sources;
-
 struct TendencyData {
   typedef std::shared_ptr<TendencyData> Ptr;
   static constexpr Real lcl_cdr_relax_fac = 1e-2;
@@ -518,7 +474,6 @@ struct TendencyData {
   const Real* dq; // mixing ratio
   Int idx_beg, idx_end; // tracers [idx_beg,idx_end) have tendencies
   Array<Real> q_min, q_max;
-  Sources sources;
 
   TendencyData () : cdr_on_src_tends(false) {}
 };
@@ -599,7 +554,6 @@ public:
       tend->idx_beg = srcterm_beg;
       tend->idx_end = srcterm_end;
       tend->dss_source = ! pg && tend->idx_beg < ntracers;
-      tend->sources.resize(ntracers);
       if (srcterm_tendency || tend->dss_source) {
         const auto ncell = nslices(p->m_t->geo_c2n);
         tend->q_min.optclear_and_resize(ntracers*ncell);
@@ -1120,7 +1074,7 @@ void Remapper::make_c2d_relations (
 }
 
 void Remapper::
-init_csl () {
+init_isl () {
   isl_impl_ = std::make_shared<IslImpl>(pr_);
   const auto& m = *(pr_->experiment == 0 ? pr_->m_f : pr_->m_v);
   const Int cnn = nslices(m.cgll_p);
@@ -1133,7 +1087,7 @@ init_csl () {
   resize(cn_src_cell_, std::max(cnn, cnn_f));
   // independent of mesh
   resize(q_data_, ncell_, 2);
-  init_csl_jacobian(m);
+  init_isl_jacobian(m);
 }
 
 // Always d2c rho because the density factor is discontinuous at the element
@@ -1144,98 +1098,138 @@ static void dss_rho (D2Cer& d2cer, Real* rho, Array<Real>& wrk) {
   d2cer.dss(rho, wrk.data());
 }
 
+static Int
+find_src_cell (const Mesh& m, const RemapData& rd, const Int ne,
+               const Int cni /* target node, continuous ID */,
+               const AVec3s& advected_p) {
+  // Solve for departure point.
+  const auto p = slice(advected_p, cni);
+  // Normalize p for much faster calc_sphere_to_ref.
+  Real p_sphere[3];
+  for (Int d = 0; d < 3; ++d) p_sphere[d] = p[d];
+  siqk::SphereGeometry::normalize(p_sphere);
+  Int ci;
+  if (m.nonuni) {
+    SearchFunctor sf(m, p_sphere);
+    rd.octree().apply(sf.bb, sf); // same regardless of mesh
+    ci = sf.ci_hit;
+  } else {
+    const auto& gr = m.grid_rotation;
+    ci = mesh::get_cell_idx(ne, gr.angle, gr.R, p_sphere[0], p_sphere[1],
+                            p_sphere[2]);
+  }
+  return ci;
+}
+
+static void
+calc_departure_data (const Mesh& m, const RemapData& rd, const Int ne,
+                     const Int cni /* target node, continuous ID */,
+                     const AVec3s& advected_p,
+                     Int& ci, bool calc_ci, Real* va, Real* vb, Real& a, Real& b) {
+  // Solve for departure point.
+  const auto p = slice(advected_p, cni);
+  // Normalize p for much faster calc_sphere_to_ref.
+  Real p_sphere[3];
+  for (Int d = 0; d < 3; ++d) p_sphere[d] = p[d];
+  siqk::SphereGeometry::normalize(p_sphere);
+  if (calc_ci) {
+    if (m.nonuni) {
+      SearchFunctor sf(m, p_sphere);
+      rd.octree().apply(sf.bb, sf); // same regardless of mesh
+      ci = sf.ci_hit;
+    } else {
+      const auto& gr = m.grid_rotation;
+      ci = mesh::get_cell_idx(ne, gr.angle, gr.R, p_sphere[0], p_sphere[1],
+                              p_sphere[2]);
+    }
+  }
+  assert(ci >= 0 && ci < nslices(m.dglln2cglln)/square(m.np));
+  const auto& cell = slice(m.geo_c2n, ci);
+  siqk::sqr::Info info;
+  sphere2ref::calc_sphere_to_ref(m.geo_p, cell, p_sphere, a, b, &info);
+  // Eval basis functions.
+  m.basis->eval(m.np, a, va);
+  m.basis->eval(m.np, b, vb);
+}
+
+static void
+calc_jacobian_departure (const Mesh& m, const bool isoparametric,
+                         const AVec3s& advected_p, Real* Jdep) {
+  const Int dnn = nslices(m.dglln2cglln);
+  const Int np = m.np, np2 = square(np);
+  const Real* xnode;
+  m.basis->get_x(m.np, xnode);
+  ompparfor for (Int i = 0; i < dnn; ++i) {
+    const Int ti = i / np2;
+    const auto& cell = slice(m.cgll_c2n, ti);
+    const Int ni = i % np2;
+    const Real ta = xnode[ni % np], tb = xnode[ni / np];
+    Real Jd;
+    if (isoparametric) {
+      // This is the case of interest and runs when property preservation is
+      // on. For the case of p-refinement, it runs with np=npv=4, not npt.
+      Jd = calc_isoparametric_jacobian(advected_p, cell, np, ta, tb);
+    } else {
+      // This happens only when property preservation is off, in which case
+      // density doesn't couple to the mixing ratios.
+      const Int corners[] = {cell[0], cell[np-1],
+                             cell[np*np-1], cell[np*(np-1)]};
+      Jd = calc_jacobian(advected_p, corners, ta, tb);
+    }
+    Jdep[i] = Jd;
+  }
+}
+
 void Remapper::
 interp (const Mesh& m, const C2DRelations& c2d, const AVec3s& advected_p,
         const Real* const src_tracer, Real* const tgt_tracer, const Int ntracers,
         const Real* const src_density, Real* const tgt_density,
-        const bool rho_csl) {
+        const bool rho_isl) {
+  assert(src_density && tgt_density);
   Timer::start(Timer::ts_isl_interp);
-  static const GLL gll;
   const Int cnn = nslices(c2d.ptr) - 1;
+  assert(cnn == nslices(advected_p));
   const Int dnn = nslices(m.dglln2cglln);
   const Int ne = std::sqrt(ncell_ / 6);
   const Int np = m.np, np2 = square(np);
   const bool footprint = ntracers > 0 && isl_impl_->footprint != nullptr;
-  if (rho_csl) {
-    const Real* gll_x, * gll_wt;
-    gll.get_coef(m.np, gll_x, gll_wt);
-#   pragma omp parallel for
-    for (Int i = 0; i < dnn; ++i) {
-      const Int ti = i / np2;
-      const auto& cell = slice(m.cgll_c2n, ti);
-      const Int ni = i % np2;
-      const Real ta = gll_x[ni % np], tb = gll_x[ni / np];
-      Real Jd;
-      if (md_) {
-        // This is the case of interest and runs when property preservation is
-        // on. For the case of p-refinement, it runs with np=npv=4, not npt.
-        Jd = calc_isoparametric_jacobian(advected_p, cell, np, ta, tb);
-      } else {
-        // This happens only when property preservation is off, in which case
-        // density doesn't couple to the mixing ratios.
-        const Int corners[] = {cell[0], cell[np-1],
-                               cell[np*np-1], cell[np*(np-1)]};
-        Jd = calc_jacobian(advected_p, corners, ta, tb);
-      }
-      density_factor_(i) = Jd/Je_(i);
-    }
-  }
+  const Real* wt;
+  auto& colscl = isl_impl_->wrk;
+  if (rho_isl)
+    calc_jacobian_departure(m, md_ != nullptr, advected_p, Jdep_.data());
   if (footprint) isl_impl_->footprint->start();
-# pragma omp parallel for
-  for (Int cni = 0; cni < cnn; ++cni) {
+  ompparfor for (Int tni = 0; tni < cnn; ++tni) {
     // GLL values in the source cell corresponding to this departure point.
     Int ci;
     Real va[GLL::np_max], vb[GLL::np_max];
     Real a, b;
-    {
-      // Solve for departure point.
-      const auto p = slice(advected_p, cni);
-      // Normalize p for much faster calc_sphere_to_ref.
-      Real p_sphere[3];
-      for (Int d = 0; d < 3; ++d) p_sphere[d] = p[d];
-      siqk::SphereGeometry::normalize(p_sphere);
-      if (m.nonuni) {
-        SearchFunctor sf(m, p_sphere);
-        rd_->octree().apply(sf.bb, sf); // same regardless of mesh
-        ci = sf.ci_hit;
-      } else {
-        ci = mesh::get_cell_idx(ne, p_sphere[0], p_sphere[1], p_sphere[2]);
-      }
-      const auto& cell = slice(m.geo_c2n, ci);
-      siqk::sqr::Info info;
-      sphere2ref::calc_sphere_to_ref(m.geo_p, cell, p_sphere, a, b, &info);
-      cn_src_cell_[cni] = ci;
-      // Eval basis functions.
-      m.basis->eval(np, a, va);
-      m.basis->eval(np, b, vb);
-    }
-    for (Int tri = 0; tri < ntracers; ++tri) {
-      // Interp the source cell to this point.
-      const Real* const src_cell = src_tracer + tri*dnn + ci*np2;
-      Real iv = 0;
-      for (Int j = 0, k = 0; j < np; ++j)
-        for (Int i = 0; i < np; ++i, ++k)
-          iv += va[i]*vb[j]*src_cell[k];
-      if (isl_impl_->tend->sources[tri])
-        iv += isl_impl_->tend->sources[tri]->interp(ci, a, b);
-      // Scatter to DGLL target values corresponding to this CGLL node.
-      Real* const tgt = tgt_tracer + tri*dnn;
-      for (Int j = c2d.ptr[cni]; j < c2d.ptr[cni+1]; ++j)
-        tgt[c2d.r[j]] = iv;
-      if (footprint && tri == 0) {
-        for (Int j = c2d.ptr[cni]; j < c2d.ptr[cni+1]; ++j)
-          isl_impl_->footprint->record(c2d.r[j], ci);
-      }
-    }
-    if (rho_csl) {
+    calc_departure_data(m, *rd_, ne, tni, advected_p, ci, true, va, vb, a, b);
+    cn_src_cell_[tni] = ci;
+    if (rho_isl) {
       const Real* const src_cell = src_density + ci*np2;
       Real iv = 0;
       for (Int j = 0, k = 0; j < np; ++j)
         for (Int i = 0; i < np; ++i, ++k)
           iv += va[i]*vb[j]*src_cell[k];
-      for (Int j = c2d.ptr[cni]; j < c2d.ptr[cni+1]; ++j) {
+      for (Int j = c2d.ptr[tni]; j < c2d.ptr[tni+1]; ++j) {
         const Int di = c2d.r[j];
-        tgt_density[di] = density_factor_(di)*iv;
+        tgt_density[di] = (Jdep_(di)/Je_(di))*iv;
+      }
+    }
+    for (Int tri = 0; tri < ntracers; ++tri) {
+      // Interp the source cell to this point.
+      const Real* const src_cell = src_tracer + tri*dnn + ci*np2;
+      Real* const tgt = tgt_tracer + tri*dnn;
+      Real iv = 0;
+      for (Int j = 0, k = 0; j < np; ++j)
+        for (Int i = 0; i < np; ++i, ++k)
+          iv += va[i]*vb[j]*src_cell[k];
+      // Scatter to DGLL target values corresponding to this CGLL node.
+      for (Int j = c2d.ptr[tni]; j < c2d.ptr[tni+1]; ++j)
+        tgt[c2d.r[j]] = iv;
+      if (footprint && tri == 0) {
+        for (Int j = c2d.ptr[tni]; j < c2d.ptr[tni+1]; ++j)
+          isl_impl_->footprint->record(c2d.r[j], ci);
       }
     }
   }
@@ -1244,7 +1238,7 @@ interp (const Mesh& m, const C2DRelations& c2d, const AVec3s& advected_p,
 }
 
 void Remapper::
-csl_cdr_rho (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
+isl_cdr_rho (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
              const MonoData& md, const spf::MassRedistributor::Ptr& mrd,
              Real* const src_density, const Int np2_src,
              Real* const tgt_density, const Int np2_tgt,
@@ -1296,11 +1290,11 @@ csl_cdr_rho (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
 
 // Constrained density reconstruction for classical semi-Lagrangian.
 void Remapper::
-csl_cdr (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
+isl_cdr (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
          const MonoData& md, const spf::MassRedistributor::Ptr& mrd,
          Real* const src_density, Real* const src_tracer, const Int np_src,
          Real* const tgt_density, Real* const tgt_tracer, const Int ntracers,
-         const bool positive_only, const bool rho_csl, const Filter::Enum cdr_method) {
+         const bool positive_only, const bool rho_isl, const Filter::Enum cdr_method) {
   const auto& td = *isl_impl_->tend;
   const Int np_tgt = m.np, np2_tgt = square(np_tgt);
   const Int np2_src = square(np_src);
@@ -1312,8 +1306,8 @@ csl_cdr (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
     total_mass_redistribution_.resize(ntracers+1);
     total_mass_discrepancy_.resize(ntracers+1);
   }
-  if (rho_csl) {
-    csl_cdr_rho(m, rd_src, rd_tgt, md, mrd,
+  if (rho_isl) {
+    isl_cdr_rho(m, rd_src, rd_tgt, md, mrd,
                 src_density, np2_src,
                 tgt_density, np2_tgt, ntracers);
     assert(nslices(m.dglln2cglln) == d2cer_->get_dnn());
@@ -1329,8 +1323,6 @@ csl_cdr (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
     accumulate_threaded_bfb<1>(
       [&] (const Int i, Real* a) { *a += F_src[i]*src[i]*src_density[i]; },
       len_src, &Q_mass_src);
-    if (isl_impl_->tend->sources[tri])
-      Q_mass_src += isl_impl_->tend->sources[tri]->global_mass();
     accumulate_threaded_bfb<1>(
       [&] (const Int i, Real* a) {
         tgt[i] *= tgt_density[i];
@@ -1356,14 +1348,9 @@ csl_cdr (const Mesh& m, const RemapData& rd_src, const RemapData& rd_tgt,
         }
         if ( ! td.cdr_on_src_tends &&
             (td.dss_source || (tri >= td.idx_beg && tri < td.idx_end))) {
-          if (td.sources[tri]) {
-            q_min = td.q_min[ncell_*tri + ci];
-            q_max = td.q_max[ncell_*tri + ci];
-          } else {
-            // Get the tightest bounds we can.
-            q_min = std::max(q_min, td.q_min[ncell_*tri + ci]);
-            q_max = std::min(q_max, td.q_max[ncell_*tri + ci]);
-          }
+          // Get the tightest bounds we can.
+          q_min = std::max(q_min, td.q_min[ncell_*tri + ci]);
+          q_max = std::min(q_max, td.q_max[ncell_*tri + ci]);
         }
         if (fit_extremum_) {
           assert(np_tgt == np_); // for now
@@ -1488,10 +1475,10 @@ void Remapper
 }
 
 void Remapper
-::csl (const AVec3s& advected_p, Real* const src_tracer,
+::isl (const AVec3s& advected_p, Real* const src_tracer,
        Real* const tgt_tracer, const Int ntracers,
        Real* const src_density, Real* const tgt_density,
-       const bool positive_only, const bool rho_csl,
+       const bool positive_only, const bool rho_isl,
        const Real* srcterm_tendency /* mixing ratio */,
        const Int srcterm_idx_beg, const Int srcterm_idx_end,
        const pg::PhysgridData::Ptr& pg) {
@@ -1526,12 +1513,12 @@ void Remapper
     // original basic p-refinement.
     interp(*m_, c2d_v_, advected_p,
            src_tracer, tgt_tracer, ntracers,
-           src_density, tgt_density, rho_csl);
+           src_density, tgt_density, rho_isl);
     if (run_cdr)
-      csl_cdr(*m_, *rd_, *rd_, *md_, mrd_,
+      isl_cdr(*m_, *rd_, *rd_, *md_, mrd_,
               src_density, src_tracer, np_,
               tgt_density, tgt_tracer, ntracers,
-              positive_only, rho_csl, cdr_method);
+              positive_only, rho_isl, cdr_method);
     else
       dss_rho(*d2cer_, tgt_density, isl_impl_->wrk);
     if (pg)
@@ -1558,17 +1545,17 @@ void Remapper
       }
       d2cer_ = std::make_shared<D2Cer>(pr_->m_v->dglln2cglln, pr_->rd_v->dgbfi_mass());
     }
-    if (rho_csl) {
+    if (rho_isl) {
       // Transport rho on v mesh to mimic dycore.
       interp(*pr_->m_v, c2d_v_, advected_p,
              nullptr, nullptr, 0,
-             src_rho_impl, tgt_rho_impl, rho_csl);
+             src_rho_impl, tgt_rho_impl, rho_isl);
       if (run_cdr) {
         // Property-preserve rho on v mesh to mimic dycore.
-        csl_cdr(*pr_->m_v, *pr_->rd_v, *pr_->rd_v, *pr_->md_v, isl_impl_->mrd_c,
+        isl_cdr(*pr_->m_v, *pr_->rd_v, *pr_->rd_v, *pr_->md_v, isl_impl_->mrd_c,
                 src_rho_impl, nullptr, pr_->m_v->np,
                 tgt_rho_impl, nullptr, ntracers,
-                positive_only, rho_csl, cdr_method);
+                positive_only, rho_isl, cdr_method);
       } else {
         dss_rho(*d2cer_, tgt_rho_impl, isl_impl_->wrk);
       }
@@ -1579,9 +1566,11 @@ void Remapper
     const auto ap_fine = isl_impl_->interp_p(advected_p);
     interp(*m_, c2d_f_, ap_fine,
            src_tracer, tgt_tracer, ntracers,
-           nullptr, nullptr, false);
+           // These are unused unless we're using the local mass conservation
+           // option.
+           src_rho_impl, tgt_rho_impl, false);
     if (run_cdr)
-      csl_cdr(*m_, *rd_, *rd_, *md_, mrd_,
+      isl_cdr(*m_, *rd_, *rd_, *md_, mrd_,
               src_density, src_tracer, np_,
               tgt_density, tgt_tracer, ntracers,
               positive_only, false, cdr_method);
@@ -1593,17 +1582,17 @@ void Remapper
     Real* const tgt_rho_impl = isl_impl_->rho[isl_impl_->idxs[1]].data();
     Real* const src_tracer_impl = isl_impl_->tracer[isl_impl_->idxs[0]].data();
     Real* const tgt_tracer_impl = isl_impl_->tracer[isl_impl_->idxs[1]].data();
-    if (rho_csl) {
+    if (rho_isl) {
       // Transport rho on v mesh to mimic dycore.
       interp(*pr_->m_v, c2d_v_, advected_p,
              nullptr, nullptr, 0,
-             src_density, tgt_density, rho_csl);
+             src_density, tgt_density, rho_isl);
       if (run_cdr) {
         // Property-preserve rho on v mesh to mimic dycore.
-        csl_cdr(*pr_->m_v, *pr_->rd_v, *pr_->rd_v, *pr_->md_v, mrd_,
+        isl_cdr(*pr_->m_v, *pr_->rd_v, *pr_->rd_v, *pr_->md_v, mrd_,
                 src_density, nullptr, pr_->m_v->np,
                 tgt_density, nullptr, ntracers,
-                positive_only, rho_csl, cdr_method);
+                positive_only, rho_isl, cdr_method);
       } else {
         dss_rho(*d2cer_, tgt_density, isl_impl_->wrk);
       }
@@ -1633,13 +1622,15 @@ void Remapper
     const auto ap_fine = isl_impl_->interp_p(advected_p);
     interp(*pr_->m_f, c2d_f_, ap_fine,
            src_tracer_impl, tgt_tracer_impl, ntracers,
-           nullptr, nullptr, false);
+           // These are unused unless we're using the local mass conservation
+           // option.
+           src_rho_impl, tgt_rho_impl, false);
     // Interpolate current rho to f mesh.
     isl_impl_->interp_rho(tgt_density, tgt_rho_impl, rho_continuous);
     // Global property preservation on t mesh, local on both.
     if (run_cdr) {
       // Property preserve q on f mesh.
-      csl_cdr(*pr_->m_f, *pr_->rd_f, *pr_->rd_f, *pr_->md_f, isl_impl_->mrd_f,
+      isl_cdr(*pr_->m_f, *pr_->rd_f, *pr_->rd_f, *pr_->md_f, isl_impl_->mrd_f,
               src_rho_impl, src_tracer_impl, pr_->m_f->np,
               tgt_rho_impl, tgt_tracer_impl, ntracers,
               positive_only, false /* don't apply cdr to rho */, cdr_method);

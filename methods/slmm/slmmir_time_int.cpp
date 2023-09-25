@@ -116,6 +116,9 @@ std::shared_ptr<MeshIntegrator> MeshIntegratorFactory
   case MovingVortices:
     return std::make_shared<MeshIntegratorWithOdeFn<
       gallery::MovingVortices> >(p, use_xyz_form);
+  case TestWindField:
+    return std::make_shared<MeshIntegratorWithOdeFn<
+      gallery::TestWindField> >(p, use_xyz_form);
   default:
     assert(0);
     return nullptr;

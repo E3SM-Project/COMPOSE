@@ -237,7 +237,7 @@ RemapData::RemapData (const Mesh& m, const Method::Enum method, const Dmc::Enum 
   calc_gll_basis_function_integrals(m, GLL(), dgbfi_gll_);
   method_ = method;
   dmc_ = dmc;
-  if ( ! Method::is_pcsl(method)) calc_M_fwd(m, fmm_, dmc);
+  if ( ! Method::is_pisl(method)) calc_M_fwd(m, fmm_, dmc);
   init_dgbfi_mass(Dmc::use_homme_mass(dmc_) ? dgbfi_gll_ : dgbfi_);
 }
 

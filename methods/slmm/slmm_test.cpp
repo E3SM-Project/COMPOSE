@@ -17,7 +17,8 @@ struct Command {
   enum Enum {
     test_make_cubedsphere, test_make_gll_mesh, test_make_gll_subcell_mesh,
     test_gll, test_gll_2d, test_time_int, test_qp_limiter, test_face_tree,
-    test_spf, test_fit_extremum, test_nla, islet_compute, test_mass_matrix
+    test_spf, test_fit_extremum, test_nla, test_areas, islet_compute,
+    test_mass_matrix
   };
   static Enum from_string (const std::string& s) {
     if (s == "test_make_cubedsphere") return test_make_cubedsphere;
@@ -31,6 +32,7 @@ struct Command {
     if (s == "test_spf") return test_spf;
     if (s == "test_fit_extremum") return test_fit_extremum;
     if (s == "test_nla") return test_nla;
+    if (s == "test_areas") return test_areas;
     if (s == "islet_compute") return islet_compute;
     if (s == "test_mass_matrix") return test_mass_matrix;
     throw std::runtime_error(s + " is not a command.");
@@ -86,7 +88,8 @@ static Int test_make_cubedsphere (const Input& in) {
       den = std::sqrt(den);
       for (Int j = 0; j < 3; ++j) xyz[j] /= den;
       // Check whether we recover the cell index.
-      const Int ci_calc = mesh::get_cell_idx(in.ne, xyz[0], xyz[1], xyz[2]);
+      const Int ci_calc = mesh::get_cell_idx(in.ne, 0, nullptr,
+                                             xyz[0], xyz[1], xyz[2]);
       if (ci_calc != ci) {
         ++nerr;
         success = false;
@@ -399,37 +402,105 @@ static Int test_nla (const Input& in) {
   return test_solve_kkt() + test_form_ls_op() + QrFac::unittest(11);
 }
 
-// Use sphere_tri_area method in Homme.
-template <typename CV3s>
-static Real calc_area_homme (const CV3s& v, const Int n) {
-  using sg = siqk::SphereGeometry;
-  using sg = siqk::SphereGeometry;
+static Real calc_gll_area (const Basis& b, const Int np, const Vec3s& p, const Int nv) {
+  static const Int e[] = {0,1,2,3};
+  const Real* xnode, *wt;
+  b.get_x(np, xnode);
+  b.get_w(np, wt);
   Real area = 0;
-  for (Int i = 1, ilim = n - 1; i < ilim; ++i) {
-    const Real al = sg::calc_arc_length(slice(v,0), slice(v,i));
-    const Real bl = sg::calc_arc_length(slice(v,i), slice(v,i+1));
-    const Real cl = sg::calc_arc_length(slice(v,i+1), slice(v,0));
-    const Real
-      sina = std::sin((bl+cl-al)/2),
-      sinb = std::sin((al+cl-bl)/2),
-      sinc = std::sin((al+bl-cl)/2),
-      sins = std::sin((al+bl+cl)/2),
-      a=std::sqrt((sinb*sinc)/(sins*sina)),
-      b=std::sqrt((sina*sinc)/(sins*sinb)),
-      c=std::sqrt((sina*sinb)/(sins*sinc));
-    Real
-      a1 = 2*std::atan(a),
-      b1 = 2*std::atan(b),
-      c1 = 2*std::atan(c);
-    if (a > b && a > c)
-      a1 = -2*atan(1/a);
-    else if (b > c)
-      b1 = -2*atan(1/b);
-    else 
-      c1 = -2*atan(1/c);
-    area += a1+b1+c1;
+  for (Int i = 0; i < np; ++i) {
+    for (Int j = 0; j < np; ++j) {
+      Real J[6], tmp[3];
+      siqk::sqr::impl::calc_Jacobian(p, e, xnode[i], xnode[j], J);
+      siqk::SphereGeometry::cross(J, J+3, tmp);
+      const Real jac = std::sqrt(siqk::SphereGeometry::norm2(tmp));
+      area += wt[i]*wt[j]*jac;
+    }
   }
-  return area;
+  return area/4;
+}
+
+static Int test_areas (const Input& in) {
+  Int nerr = 0;
+  {
+    const bool verbose = true;
+    Vec3s p("p", 4);
+    for (Int i = 0; i < 4; ++i) {
+      Real mag = 0;
+      for (Int d = 0; d < 3; ++d) {
+        p(i,d) = urand();
+        mag += square(p(i,d));
+      }
+      mag = std::sqrt(mag);
+      for (Int d = 0; d < 3; ++d) p(i,d) /= mag;
+    }
+    siqk::TriangleQuadrature tq;
+    const Int nv = 4;
+    const Real
+      a1 = siqk::SphereGeometry::calc_area_formula(p, nv),
+      a2 = siqk::SphereGeometry::calc_area_homme(p, nv);
+    const Int order[] = { 4, 6, 8, 12, 14, 16, 18, 20 };
+    static const Int ntqa = sizeof(order)/sizeof(*order);
+    Real tqa[ntqa];
+    for (Int i = 0; i < ntqa; ++i)
+      tqa[i] = siqk::SphereGeometry::calc_area(tq, p, nv, order[i]);
+    const Real
+      rd1 = std::abs(a1 - tqa[ntqa-1])/tqa[ntqa-1],
+      rd2 = std::abs(a2 - tqa[ntqa-1])/tqa[ntqa-1];
+    if (verbose) {
+      printf("siqk::SphereGeometry::calc_area_formula %1.3e\n", rd1);
+      printf("Homme formula                           %1.3e\n", rd2);
+      for (Int i = 0; i < ntqa; ++i)
+        printf("tri quad order %2d %1.3e\n",
+               order[i], std::abs(tqa[i] - tqa[ntqa-1])/tqa[ntqa-1]);
+    }
+    if (rd1 > 1e-14) ++nerr;
+    if (rd2 > 1e-14) ++nerr;
+    if (verbose) {
+      for (const auto basis : {Basis::Type::gll, Basis::Type::gll_nodal}) {
+        const auto b = Basis::create(basis);
+        for (Int np = 2; np <= 13; ++np) {
+          const Real area = calc_gll_area(*b, np, p, nv);
+          printf("%s order %2d %1.3e\n",
+                 b->name(), np, std::abs(area - tqa[ntqa-1])/tqa[ntqa-1]);
+        }
+      }
+    }
+  }
+  {
+    static const char* name[] = {"homme", "siqk", "triquad8", "triquad20"};
+    Int ne = 15;
+    Vec3s p("p", 4);
+    const Int nv = 4;
+    siqk::TriangleQuadrature tq;
+    for (Int cnt = 0; cnt < 2/*6*/; ++cnt) {
+      ne <<= 1;
+      AVec3s cp;
+      AIdxs c2n;
+      mesh::make_cubedsphere_mesh(cp, c2n, ne);
+      for (Int method = 0; method < 4; ++method) {
+        Real area = 0;
+        const Int nelem = nslices(c2n);
+        for (Int ie = 0; ie < nelem; ++ie) {
+          for (Int i = 0; i < 4; ++i)
+            for (Int d = 0; d < 3; ++d)
+              p(i,d) = cp(c2n(ie,i),d);
+          Real a;
+          switch (method) {
+          case 0: a = siqk::SphereGeometry::calc_area_homme(p, nv); break;
+          case 1: a = siqk::SphereGeometry::calc_area_formula(p, nv); break;
+          case 2: a = siqk::SphereGeometry::calc_area(tq, p, nv, 8 ); break;
+          case 3: a = siqk::SphereGeometry::calc_area(tq, p, nv, 20); break;
+          default: a = 0;
+          }
+          area += a;
+        }
+        printf("ne %4d method %12s re %1.3e\n",
+               ne, name[method], std::abs(area - 4*M_PI)/(4*M_PI));
+      }
+    }
+  }
+  return nerr;
 }
 
 static Int test_fit_extremum (const Input& in) {
@@ -628,6 +699,7 @@ int main (int argc, char** argv) {
     case Command::test_face_tree: nerr = test_face_tree(in); break;
     case Command::test_spf: nerr = test_spf(in); break;
     case Command::test_nla: nerr = test_nla(in); break;
+    case Command::test_areas: nerr = test_areas(in); break;
     case Command::test_fit_extremum: nerr = test_fit_extremum(in); break;
     case Command::islet_compute: nerr = islet_compute(in); break;
     case Command::test_mass_matrix: nerr = test_mass_matrix(in); break;
