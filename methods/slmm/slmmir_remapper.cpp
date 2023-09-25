@@ -675,22 +675,22 @@ Remapper
     resize(rho_src_cmbc_, dnn_);
     resize(rho_tgt_cmbc_, dnn_);
   }
-  if (Method::is_csl(rd_->method()))
-    init_csl();
+  if (Method::is_isl(rd_->method()))
+    init_isl();
 }
 
 void Remapper::
 use_subcell_bounds () {
-  SIQK_THROW_IF( ! Method::is_csl(rd_->method()),
-                 "Subcell bounds are for CSL only.");
+  SIQK_THROW_IF( ! Method::is_isl(rd_->method()),
+                 "Subcell bounds are for ISL only.");
   subcell_bounds_ = true;
   resize(q_data_, square(np_-1)*ncell_, 2);
 }
 
 void Remapper::
 use_fit_extremum () {
-  SIQK_THROW_IF( ! Method::is_csl(rd_->method()),
-                 "Quadratic extremum is impl'ed CSL only.");
+  SIQK_THROW_IF( ! Method::is_isl(rd_->method()),
+                 "Quadratic extremum is impl'ed ISL only.");
   fit_extremum_ = std::make_shared<FitExtremum>(np_);
 }
 

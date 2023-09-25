@@ -1,8 +1,8 @@
 #ifndef INCLUDE_SLMM_MESH_HPP
 #define INCLUDE_SLMM_MESH_HPP
 
-#include "slmm_defs.hpp"
 #include "slmm_array_tree.hpp"
+#include "slmm_mesh.hpp"
 
 namespace slmm {
 
@@ -43,6 +43,10 @@ void make_cubedsphere_mesh(
 
 void make_nonuniform(AVec3s& geo_p);
 
+// Rotate the grid given (axis, angle). Store the rotation in the row-major 3x3
+// matrix R.
+void rotate_grid(const Real axis[3], const Real angle, Real* R, AVec3s& p);
+
 // Make geometric data for a mesh that is a cubed-sphere refined into a subcell
 // mesh, by default the CGLL mesh. This is used to study p=1 transport over a
 // p>1 GLL mesh, for example. In that case, call this instead of
@@ -79,7 +83,9 @@ void get_adjacent_cells(const AIdxs& geo_c2n, AIdxArray& geo_c2cnbrs_ptr,
 
 // Given a coordinate (x,y,z) on the sphere, return the index of the cell it is
 // in for the quasiuniform cubed-sphere mesh with ne x ne faces.
-Int get_cell_idx(const Int ne, Real x, Real y, Real z);
+//   If angle != 0, then the mesh was rotated by row-major rotation matrix R.
+Int get_cell_idx(const Int ne, const Real angle, const Real* const R,
+                 Real x, Real y, Real z);
 
 // tree is a tree over geometric cells. It is stored as an Int array.
 bool make_cubedsphere_tree_over_cells(const Int ne, AIdxArray& tree,

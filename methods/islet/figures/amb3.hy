@@ -1,7 +1,7 @@
 ;;; Collection of utils.
 
 ;;(require [hy.contrib.walk [let]])
-(import sys copy math os re)
+(import sys copy math os re [importlib [reload]])
 
 ;;   when passing kwargs to another function like pl.plot, the dictionary should
 ;; be like {'option value}, not {:option value}.
@@ -23,7 +23,6 @@
 (defn symbol [string] (HySymbol string))
 
 (defmacro/g! svifn [&rest args]
-  "setv if none"
   `(do ~@(map (fn [e]
                 `(if (none? ~(first e)) (setv ~(first e) ~(last e))))
               (zip (cut args 0 (len args) 2)
@@ -81,7 +80,7 @@
   `(print (.format ~@args) :end "" :file ~fid))
 
 (defmacro prc [sym]
-  `(prf ~(+ (name sym) " {}") ~sym))
+  `(print ~sym "|" (eval (read-str ~sym))))
 
 (defmacro mapply [func &rest args]
   "Apply func. Works for keyword args, unlike apply. (Probably broken in many
@@ -148,47 +147,6 @@
        (setv first? (= ~g!i ~g!first))
        (setv last? (= ~g!i ~g!last))
        ~@body)))
-
-;; Use this instead of macroexpand to get output stripped of the Hy object
-;; ctors.
-(defn ppme [quoted-form]
-  (sv sym-dict {} b (Box) b.sym-num 0
-      b.after-open True)
-  (defn sym [e]
-    (unless (in e sym-dict)
-      (assoc sym-dict e (.format "sym-{:d}" b.sym-num))
-      (inc! b.sym-num))
-    (get sym-dict e))
-  (defn prl [e ldelim rdelim]
-    (prfno "{:s}" (+ (if b.after-open "" " ") ldelim))
-    (sv b.after-open True)
-    (for [li e] (rec li))
-    (prfno "{:s}" rdelim))
-  (defn atom? [e]
-    (in "quote" (first e)))
-  (defn rec [e]
-    (setv t (type e))
-    (case/in t
-             [[hy.models.HyFloat HyInteger] (print (+ " " (str e)) :end "")]
-             [[HyExpression]
-              (if (atom? e)
-                (for [li e] (rec li))
-                (prl e "(" ")"))]
-             [[HyList] (prl e "[" "]")]
-             [[HyString] (print (.format " \"{:s}\"" e) :end "")]
-             [:else
-              (unless b.after-open (print " " :end ""))
-              (sv b.after-open False)
-              (cond [(in "keyform" e)
-                     (print (sym e) :end "")]
-                    [(in "quote" e)
-                     (print "'" :end "")
-                     (sv b.after-open True)]
-                    [:else (print e :end "")])]))
-  (setv h (macroexpand quoted-form))
-  (print h)
-  (rec h)
-  (print))
 
 (defclass Box []
   "A box to hold values to be written in closures."
@@ -357,6 +315,11 @@
   (/ (sum (map (fn [e] (** (- e mu) 2)) coll))
      (len coll)))
 
+(defn cumsum [coll]
+  (setv c (list (copy.deepcopy coll)))
+  (for [i (range 1 (len c))] (+= (get c i) (nth c (dec i))))
+  c)
+
 (defn cross-prod [x y]
   (defn one [i0 i1]
     (- (* (get x i0) (get y i1)) (* (get x i1) (get y i0))))
@@ -397,27 +360,35 @@
    (except [e Exception]
      (print ln))))
 
-(defn ooa [y &optional [xfac 2] [x None]]
+(defn calc-ooa [y &optional [xfac 2] [x None]]
+  (defn bad [e] (or (npy.isnan e) (npy.isinf e)))
   (setv r [])
   (for [i (range (dec (len y)))]
+    (when (or (bad (nth y i)) (bad (nth y (inc i))))
+      (prf "calc-ooa: i {} y(i) {} y(i+1) {}" i (nth y i) (nth y (inc i))))
     (.append r (/ (- (math.log (get y i)) (math.log (get y (inc i))))
                   (if x
-                    (- (math.log (get x i)) (math.log (get x (inc i))))
+                    (- (math.log (get x (inc i))) (math.log (get x i)))
                     (math.log xfac)))))
   r)
 
-(defn ooa-from-file [fname fieldno &optional anchor]
+(defn ooa-from-file [fname xanchor xfldno yanchor yfldno]
   "Read text from file fname, optionally scan for lines beginning with anchor,
   and read symbol fieldno, starting from 0. Return a list of OOAs."
   (sv txt (.split (readall fname) "\n")
-      errs [])
+      x [] y [])
   (for [ln txt]
-    (unless (none? anchor)
-      (when (or (< (len ln) (len anchor))
-                (!= anchor (cut ln 0 (len anchor))))
-        (continue)))
-    (.append errs (float (get (.split ln) fieldno))))
-  (, errs (ooa errs)))
+    (cond [(and (>= (len ln) (len xanchor))
+                (= xanchor (cut ln 0 (len xanchor))))
+           (.append x (float (get (.split ln) xfldno)))]
+          [(and (>= (len ln) (len yanchor))
+                (= yanchor (cut ln 0 (len yanchor))))
+           (.append y (float (get (.split ln) yfldno)))]))
+  (, x y (ooa y :x x)))
+
+(defn sypd [procs calls time &optional [calls-per-day 48]]
+  (/ (/ calls procs calls-per-day 365)
+     (/ time (* 24 3600))))
 
 (defn single? [coll]
   (or (not (coll? coll))
@@ -521,8 +492,10 @@
  (do
   (import [numpy :as npy] ctypes)
 
+  (defmacro getc [vs i] `(get ~vs (, (s-all) ~i)))
+
   (defn array-range [&rest args]
-    (npy.array (list (apply range args)) :dtype int))
+    (npy.array (list (range #*args)) :dtype int))
 
   (defn array-if-not [A &optional [dtype float]]
     (unless (= (type A) npy.ndarray)
@@ -539,6 +512,10 @@
         (= (len v.shape) 1)))
   (defn ones-row-vec [n] (npy.ones (, 1 (pod-or-len n))))
   (defn ones-col-vec [n] (npy.ones (, (pod-or-len n) 1)))
+
+  (defn xy->XY [x y]
+    (, (npy.dot (col-vec (npy.ones (len y))) (row-vec x))
+       (npy.dot (col-vec y) (row-vec (npy.ones (len x))))))
 
   (defn sort-with-p [ai]
     "Return sorted ai and permutation array. Each entry of a must have the same
@@ -651,6 +628,28 @@
 
   (defn antidiag [v]
     (get (npy.diag (get (npy.array v) (s-all-rev))) (s-all-rev)))
+
+  (defn get-row-2norms [vs]
+    (assert (and (= (len vs.shape) 2)))
+    (sv nrm (second vs.shape)
+        den 0)
+    (for [i (range nrm)]
+      (+= den (** (getc vs i) 2)))
+    (sv den (npy.sqrt den))
+    den)
+
+  (defn scale-rows! [scale vs]
+    (assert (and (< (len scale.shape) 2)
+                 (= (len scale) (len vs))
+                 (= (len vs.shape) 2)))
+    (sv dim (second vs.shape))
+    (for [i (range dim)]
+      (sv (getc vs i) (* scale (getc vs i))))
+    vs)
+
+  (defn normalize-rows! [vs]
+    (scale-rows! (/ (get-row-2norms vs)) vs))
+
   )
  (except []
    (do
@@ -663,9 +662,9 @@
  (do
   (import matplotlib [matplotlib.pyplot :as pl])
 
-  (defn my-grid [&optional ls zorder]
-    (svifn ls "-" zorder -1)
-    (pl.grid True :lw 0.5 :ls ls :color (, 0.8 0.8 0.8) :zorder zorder
+  (defn my-grid [&optional ls]
+    (svifn ls "-")
+    (pl.grid True :lw 0.5 :ls ls :color (, 0.8 0.8 0.8) :zorder -1
              :which "both")
     (.set_axisbelow (pl.gca) True))
 
@@ -753,118 +752,26 @@
 
   (defn make-reference-slope-triangle [x-span y-span slope pattern
                                        &optional [kwargs-plot None]
-                                       [kwargs-text None]
-                                       [opposite None]]
+                                       [kwargs-text None]]
     (assert (= 2 (len x-span)))
     (assert (= 2 (len y-span)))
     (svifn kwargs-plot {})
     (svifn kwargs-text {})
-    (svifn opposite False)
     (sv (, x0 x1) x-span (, y0 y1) y-span
-        dx (- x1 x0) dy (- y1 y0))
-    (if opposite
-        (do (sv x [x0 x1 x1 x0]
-                y [y1 y1 y0 y1]))
-        (do (sv x [x0 x1 x0 x0]
-                y [y0 y0 y1 y0])))
+        dx (- x1 x0) dy (- y1 y0)
+        x [x0 x1 x0 x0] y [y0 y0 y1 y0])
     (pl.plot #*[x y pattern] #**kwargs-plot)
-    (when opposite
-      (if (none? kwargs-text) (sv kwargs-text {}))
-      (assoc kwargs-text "horizontalalignment" "right" "verticalalignment" "top"))
-    (pl.text #*[(if opposite (- x1 (* 0.1 dx)) (+ x0 (* 0.1 dx)))
-                (if opposite (- y1 (* 0.1 dy)) (+ y0 (* 0.1 dy))) (str slope)]
+    (pl.text #*[(+ x0 (* 0.1 dx)) (+ y0 (* 0.1 dy)) (str slope)]
              #**kwargs-text))
 
+  (defn frame-init []
+    (pl.show :block False))
+  (defn frame-flip [U &optional [clim None] [pause 0.05]]
+    (pl.clf)
+    (pl.imshow U :interpolation "none" :origin "lower")
+    (unless (none? clim)
+      (pl.clim clim))
+    (pl.tight-layout)
+    (pl.pause pause))
+
   ) (except [] ))
-
-;;; More extensive unit tests.
-(if-main
-  (expect
-    (case/eq 'hi
-             ('hit 'nope)
-             ('hi 'bark 'yep))
-    'yep)
-  (expect
-    (case/in 'hello
-             ['(bye hello) 'nope]
-             ('(hi) 'yep)
-             ('(4) 'another-nope))
-    'nope)
-  (expect
-    (case/in 'hi
-             ('(bye hello) 'nope)
-             ('(hi) 'yep)
-             ('(4) 'another-nope))
-    'yep)
-  (expect
-    (case/in 'hi
-             ('(bye hello) 'nope)
-             ('hi 'yep)
-             ('(4) 'another-nope))
-    'yep)
-  (expect
-    (case/test in 'hi
-               ('(bye hello) 'nope)
-               ('hi 'yep)
-               ('(4) 'another-nope))
-    'yep)
-  (expect (case/eq 4 [5 'bye] [4 'hi])
-          'hi)
-  (expect
-    (case/in 'hi
-             ('(bye hello) 'nope))
-    None)
-  (expect
-    (case/in 'hi
-             ('(bye hello) 'nope)
-             (:else 'woot))
-    'woot)
-  (expect
-    (sdo (setv key 'hi)
-         (case/in key
-                  ('(bye hello) 'nope)
-                  ([key] 'yup)))
-    'yup)
-
-  (expect
-    (do
-      (sv a None b 4 c "hi" d None)
-      (svifn a "hi" b 3 c "bye")
-      (and (= a "hi") (= b 4) (= c "hi") (none? d))))
-  (expect
-    (do
-      (sv a None)
-      (svifn a "hi")
-      (= a "hi")))
-    (expect
-    (do
-      (sv a 5)
-      (svifn a "hi")
-      (= a 5)))
-
-    (expect
-     (do (sv a 1 b "hi" c 'd)
-         (svb (ab 1) (bb "hi") (cb 'd))
-         (and (= a ab) (= b bb) (= c cb))))
-
-  (when-inp ["test-pretty-print"]
-    (ppme '(case/in 'hi
-                    (['hi 'bye] 'hi)
-                    ('[foo] (for [d dinos]
-                              (print (.format "{:s} goes {:d}"
-                                              d.name d.sound))))
-                    ('[bar]
-                     (defn axis-tight-pad [&optional [pad 0.05] [mult False]
-                                           [foo 3]]
-                       (pl.axis "tight")
-                       (setv xl (pl.xlim) yl (pl.ylim))
-                       (pl.xlim (pad-lim xl pad mult))
-                       (pl.ylim (pad-lim yl pad mult)))
-                     (axis-tight-pad)))))
-
-  (when-inp ["ooa-from-file" {:fname str :anchor str :fieldno int}]
-    (sv (, errs ooas) (ooa-from-file fname fieldno :anchor anchor))
-    (for [i (range (len errs))]
-      (prf "{:10.3e} {}" (get errs i)
-           (if (zero? i) " n/a" (.format "{:6.3f}" (get ooas (dec i)))))))
-)

@@ -187,4 +187,15 @@
  (when-inp ["test-gll-w"]
    (for [np (range 1 8)]
      (sv w (get-gll-w np))
-     (assert (<= (reldif 2 (sum w)) (* 1 (epsilon)))))))
+     (assert (<= (reldif 2 (sum w)) (* 1 (epsilon))))))
+
+ (when-inp ["spacing"]
+   (sv nps (list (range 4 13)) dx-min [])
+   (for [np nps]
+     (.append dx-min (npy.min (npy.diff (get-gll-x np)))))
+   (for [i (range (len nps))]
+     (sv actual (/ (first dx-min) (nth dx-min i))
+         predicted (** (/ (nth nps i) (first nps)) 2))
+     (prf "{:2d} {:1.3f} {:5.2f} {:4.1f} {:6.2f}" (nth nps i) (nth dx-min i)
+          actual predicted (* 100 (/ predicted actual)))))
+)

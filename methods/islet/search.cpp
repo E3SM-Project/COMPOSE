@@ -560,12 +560,12 @@ struct NsbSearchAtom : public UserInterpMethod {
         }
 #endif
         for (Int j = 0; j < subnp[i]; ++j)
-          xsub[j] = x_gll[nodes[i][j]];
+          xsub[j] = x_gll[(int) nodes[i][j]];
         // Lagrange polynomial basis.
         std::fill(v, v + np, 0);
         eval_lagrange_poly(xsub, subnp[i], x, vsub);
         for (Int j = 0; j < subnp[i]; ++j)
-          v[nodes[i][j]] = vsub[j];
+          v[(int) nodes[i][j]] = vsub[j];
       }
       break;
     }
@@ -594,8 +594,8 @@ struct Count {
 
 void randperm (Int* const p, const Int n) {
   using islet::urand;
-  for (size_t i = 0; i < n; ++i) p[i] = i;
-  for (size_t i = 0; i < 5*n; ++i) {
+  for (Int i = 0; i < n; ++i) p[i] = i;
+  for (Int i = 0; i < 5*n; ++i) {
     const int j = urand()*n, k = urand()*n;
     std::swap(p[j], p[k]);
   }
@@ -659,7 +659,6 @@ static Restarter::Ptr read_restart (const int np) {
   if ( ! is.is_open()) return nullptr;
   const auto mt = std::make_shared<MetricsTracker>(np);
   const auto r = std::make_shared<Restarter>(mt, np, 0, 0);
-  int lnp;
   const bool ok = (read(is, r->np) && r->np == np &&
                    read(is, r->min_ooa) &&
                    read(is, r->dont_eval_if_below) &&
@@ -698,8 +697,8 @@ void eval (std::vector<NsbSearchAtom>& esa,
     }
     const auto& in = input_list[perm[ili]];
     auto& my_esa = esa[omp_get_thread_num()];
-    bool all_pve_wts;
-    Real wtr, xnodes[islet::np_max], metrics[3], pum_metric;
+    bool all_pve_wts = false;
+    Real wtr, metrics[3], pum_metric;
     const auto maxeigampm1 = my_esa.run(in, all_pve_wts, wtr, mt, metrics,
                                         pum_metric);
     if (maxeigampm1 > in.maxeigampm1) return;
@@ -757,7 +756,7 @@ void recur (const int np, const std::vector<ValidNodesList::Ptr>& vnls,
       for (int j = 0; j < b.subnp[i]; ++j)
         in.nodes[i][j] = b.nodes[i][j];
     ++input_list_pos;
-    if (input_list_pos == input_list.size()) {
+    if ((size_t) input_list_pos == input_list.size()) {
       if (restarter.eval_count >= restarter.dont_eval_if_below) {
         // Run a bunch of analyses in parallel.
         eval(esa, input_list, input_list_pos, mt, false, count);
@@ -832,6 +831,7 @@ static Int run (const int np, int min_ooa = -1,
   }
   if (input_list_pos > 0)
     eval(esa, input_list, input_list_pos, *mt, true, count);
+  return 0;
 }
 
 static void run () {
@@ -897,10 +897,137 @@ static void run_general_unittests () {
   std::cout << (nerr ? "FAIL" : "PASS") << " unit test\n";
 }
 
+namespace find_natural_bases {
+// Sweep over node locations and check the natural basis for positive weights
+// and, if positive, stability.
+
+struct NaturalInterp : public UserInterpMethod {
+  Int np = 0;
+  Real xnodes[islet::np_max] = {0};
+  
+  virtual void eval (const Real& x, Real* const v) override {
+    eval_lagrange_poly(xnodes, np, x, v);
+  }
+
+  virtual const Real* get_xnodes() const override { return xnodes; }
+
+  virtual Int get_np() const override { return np; }
+};
+
+struct NaturalXnodes {
+  NaturalXnodes (const Int inp, const Int insample)
+    : np(inp), tol(1e-13), ne_max(500), ndx_max(500), nsample(insample),
+      nslot(np/2-1), mt(np), verbose(false)
+  {
+    nodes.init(np, true);
+    std::vector<Int> subset(np);
+    for (int i = 0; i < np; ++i) subset[i] = i;
+    for (int i = 0; i < nodes.get_nh(); ++i) nodes.set(i, subset);
+    assert(nodes.ok_to_eval());
+
+    im.np = np;
+    im.xnodes[0] = -1;
+    im.xnodes[np-1] =  1;
+    if (np % 2 == 1) im.xnodes[np/2] = 0;
+  }
+
+  void set_verbose (const bool b) { verbose = b; }
+
+  void run () {
+    recur(0, 0);
+    print_stats();
+  }
+
+  void print_stats () {
+    printf("neval %d npassfilt %d npumeval %d n_mt_noaccept %d\n",
+           neval, npassfilt, npumeval, n_mt_noaccept);
+  }
+
+private:
+  Real tol;
+  Int np, ne_max, ndx_max, nsample, nslot;
+  Nodes nodes;
+  MetricsTracker mt;
+  NaturalInterp im;
+  MaxEigComputer max_eig_amp;
+  bool verbose;
+  Int neval = 0, npassfilt = 0, npumeval = 0, n_mt_noaccept = 0;
+
+  void recur (const Int slot, const Real x_base) {
+    if (slot == nslot) {
+      ++neval;
+
+      assert_stuff();
+
+      const auto* xnodes = im.get_xnodes();
+      Real xnodes_metric[3];
+      calc_xnodes_metrics(nodes, xnodes, xnodes_metric);
+      if ( ! mt.acceptable_metrics(nodes, xnodes, xnodes_metric)) {
+        ++n_mt_noaccept;
+        return;
+      }
+      bool all_pve_wts = false;
+      Real wtr = 0; {
+        Real wt[islet::np_max];
+        calc_weights(nodes, xnodes, wt);
+        calc_wts_metrics(np, wt, all_pve_wts, wtr);
+      }
+      if ( ! all_pve_wts) return;
+      ++npassfilt;
+
+      const Real maxeigampm1 = max_eig_amp.run(np, ne_max, ndx_max, tol, true,
+                                               &im);
+      const auto good = maxeigampm1 <= tol;
+      Real pum_metric = 1;
+      if (good) {
+        ++npumeval;
+        const Real pum_to_accept = mt.pum_to_accept(nodes, xnodes, xnodes_metric);
+        pum_metric = calc_pum_metric(im, pum_to_accept);
+        mt.update(xnodes_metric, pum_metric);
+      }
+
+      if (good || verbose) {
+        printf(" (%1.3e, %1.3e, %1.3e) %s",
+               maxeigampm1, pum_metric, wtr, good ? "good" : "");
+        printf(" x");
+        for (int i = 0; i < np; ++i)
+          printf(" %22.15e", xnodes[i]);
+        printf("\n");
+      }
+    } else {
+      const int n = std::ceil(nsample*(1 - x_base)) + 1;
+      assert(n >= 2);
+      for (int i = 1; i < n; ++i) {
+        const Real a = Real(i)/n;
+        const Real x = (1-a)*x_base + a;
+        im.xnodes[(np+1)/2+slot] = x;
+        im.xnodes[np/2-1-slot] = -x;
+        recur(slot+1, x);
+      }
+    }    
+  }
+
+  void assert_stuff () {
+#ifndef NDEBUG
+    const auto* x = im.get_xnodes();
+    for (int i = 1; i < np; ++i)
+      assert(x[i] > x[i-1]);
+    for (int i = 0; i < np; ++i)
+      assert(x[i] == -x[np-1-i]);
+#endif
+  }
+};
+
+void run (const Int np, const Int nsample) {
+  NaturalXnodes nx(np, nsample);
+  nx.run();
+}
+} // namespace find_natural_bases
+
 struct Command {
   enum Enum { unittest, findoffsetnodal, findnodal,
               finduniform, findlegendre, findcheb,
-              findnodal_given_bestosn};
+              findnodal_given_bestosn, findnatural};
   static Enum convert (const std::string& s) {
     if (s == "unittest") return unittest;
     if (s == "findoffsetnodal") return findoffsetnodal;
@@ -909,6 +1036,7 @@ struct Command {
     if (s == "finduniform") return finduniform;
     if (s == "findlegendre") return findlegendre;
     if (s == "findcheb") return findcheb;
+    if (s == "findnatural") return findnatural;
     throw std::logic_error("Not a command.");
   }
 };
@@ -955,6 +1083,12 @@ int main (int argc, char** argv) {
     find_offset_nodal_subset_bases::runall(np, NosbBasis::legendre); break;
   case Command::findcheb:
     find_offset_nodal_subset_bases::runall(np, NosbBasis::cheb); break;
+  case Command::findnatural: {
+    int nsample = 111;
+    if (argc > 3) nsample = std::atoi(argv[3]);
+    if (argc >= 1)
+      find_natural_bases::run(np, nsample);
+  } break;
   default:
     throw std::logic_error("Not a command.");
   }

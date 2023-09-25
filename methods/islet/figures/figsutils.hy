@@ -14,7 +14,7 @@
       c.nes (, 5 10 20 40 80)
       c.nps (, 4 6 8 9 12) ;(, 4 5 6 7 8 9 10 11 12 13 16)
       c.ics (, "gau" "cos" "slo")
-      c.npclrs  {4 "g" 5 "m" 6 "r" 7 "c" 8 "k" 9 "b" 10 "g" 11 "c" 12 "r" 13 "m" 16 "g"}
+      c.npclrs  {4 "g" 5 "m" 6 "r" 7 "c" 8 "k" 9 "b" 10 "g" 11 "c" 12 "m" 13 "m" 16 "g"}
       c.npmarks {4 "o" 5 "x" 6 "s" 7 "x" 8 "p" 9 "+" 10 "." 11 "^" 12 "." 13 "*" 16 "."})
   c)
 
@@ -63,8 +63,9 @@
       (inc! i)))
   d)
 
-(defn draw-slmmir-image [f &optional vmin vmax ncolor colorsym switch-halves]
-  (svifn vmin -0.05 vmax 1.15 ncolor 24 colorsym False switch-halves True)
+(defn draw-slmmir-image [f &optional vmin vmax ncolor colorsym switch-halves grid]
+  (svifn vmin -0.05 vmax 1.15 ncolor 24 colorsym False switch-halves True
+         grid True)
   (sv (, m n) f.shape
       lon-idx (if switch-halves
                   (+ (list (range (// n 2) n)) (list (range 0 (// n 2))))
@@ -86,7 +87,7 @@
                  :vmin vmin :vmax vmax))
   (pl.xlim (, (first x) (last x))) (pl.xticks x xticks :fontsize fs)
   (pl.ylim (, (first y) (last y))) (pl.yticks y yticks :fontsize fs)
-  (my-grid :ls ":"))
+  (when grid (my-grid :ls ":")))
 
 ;;; parse slmmir text output
 

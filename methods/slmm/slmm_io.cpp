@@ -1,13 +1,14 @@
 #include "slmm_io.hpp"
 #include "slmm_util.hpp"
 
+#include <fstream>
+
 #ifdef SLMM_HAVE_NETCDF
 # include <netcdf>
 #endif
 using namespace netCDF;
 
 #include <stdexcept>
-#include <fstream>
 
 namespace slmm {
 namespace io {

@@ -17,7 +17,8 @@ struct Command {
   enum Enum {
     test_make_cubedsphere, test_make_gll_mesh, test_make_gll_subcell_mesh,
     test_gll, test_gll_2d, test_time_int, test_qp_limiter, test_face_tree,
-    test_spf, test_fit_extremum, test_nla, islet_compute, test_mass_matrix
+    test_spf, test_fit_extremum, test_nla, islet_compute,
+    test_mass_matrix
   };
   static Enum from_string (const std::string& s) {
     if (s == "test_make_cubedsphere") return test_make_cubedsphere;
@@ -86,7 +87,8 @@ static Int test_make_cubedsphere (const Input& in) {
       den = std::sqrt(den);
       for (Int j = 0; j < 3; ++j) xyz[j] /= den;
       // Check whether we recover the cell index.
-      const Int ci_calc = mesh::get_cell_idx(in.ne, xyz[0], xyz[1], xyz[2]);
+      const Int ci_calc = mesh::get_cell_idx(in.ne, 0, nullptr,
+                                             xyz[0], xyz[1], xyz[2]);
       if (ci_calc != ci) {
         ++nerr;
         success = false;
@@ -399,37 +401,22 @@ static Int test_nla (const Input& in) {
   return test_solve_kkt() + test_form_ls_op() + QrFac::unittest(11);
 }
 
-// Use sphere_tri_area method in Homme.
-template <typename CV3s>
-static Real calc_area_homme (const CV3s& v, const Int n) {
-  using sg = siqk::SphereGeometry;
-  using sg = siqk::SphereGeometry;
+static Real calc_gll_area (const Basis& b, const Int np, const Vec3s& p, const Int nv) {
+  static const Int e[] = {0,1,2,3};
+  const Real* xnode, *wt;
+  b.get_x(np, xnode);
+  b.get_w(np, wt);
   Real area = 0;
-  for (Int i = 1, ilim = n - 1; i < ilim; ++i) {
-    const Real al = sg::calc_arc_length(slice(v,0), slice(v,i));
-    const Real bl = sg::calc_arc_length(slice(v,i), slice(v,i+1));
-    const Real cl = sg::calc_arc_length(slice(v,i+1), slice(v,0));
-    const Real
-      sina = std::sin((bl+cl-al)/2),
-      sinb = std::sin((al+cl-bl)/2),
-      sinc = std::sin((al+bl-cl)/2),
-      sins = std::sin((al+bl+cl)/2),
-      a=std::sqrt((sinb*sinc)/(sins*sina)),
-      b=std::sqrt((sina*sinc)/(sins*sinb)),
-      c=std::sqrt((sina*sinb)/(sins*sinc));
-    Real
-      a1 = 2*std::atan(a),
-      b1 = 2*std::atan(b),
-      c1 = 2*std::atan(c);
-    if (a > b && a > c)
-      a1 = -2*atan(1/a);
-    else if (b > c)
-      b1 = -2*atan(1/b);
-    else 
-      c1 = -2*atan(1/c);
-    area += a1+b1+c1;
+  for (Int i = 0; i < np; ++i) {
+    for (Int j = 0; j < np; ++j) {
+      Real J[6], tmp[3];
+      siqk::sqr::impl::calc_Jacobian(p, e, xnode[i], xnode[j], J);
+      siqk::SphereGeometry::cross(J, J+3, tmp);
+      const Real jac = std::sqrt(siqk::SphereGeometry::norm2(tmp));
+      area += wt[i]*wt[j]*jac;
+    }
   }
-  return area;
+  return area/4;
 }
 
 static Int test_fit_extremum (const Input& in) {

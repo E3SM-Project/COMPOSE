@@ -49,13 +49,13 @@ public:
     free_nodal = read_xnodes(nodes.get_np(), basis, xnodes);
   }
   bool is_ok () const { return ok; }
-  void eval(const Real& x, Real* const v) override {
+  void eval (const Real& x, Real* const v) override {
     ::eval(nodes, get_xnodes(), x, v);
   }
-  const Real* get_xnodes() const override {
+  const Real* get_xnodes () const override {
     return free_nodal ? xnodes : islet::get_x_gll_special(nodes.get_np());
   }
-  Int get_np() const override { return nodes.get_np(); }
+  Int get_np () const override { return nodes.get_np(); }
 };
 
 } // namespace anon
@@ -100,7 +100,7 @@ void run_thorough_diagnostics_from_basis_string (const char* basis) {
   {
     Real m[3];
     calc_xnodes_metrics_from_basis_string(basis, m);
-    printf("npm %1.4e %1.4e %1.4e\n", m[0], m[1], m[2]);
+    printf("    npm %1.4e %1.4e %1.4e\n", m[0], m[1], m[2]);
   }
   static const int ne_max = 11111;
   pum::Options po;
@@ -108,7 +108,7 @@ void run_thorough_diagnostics_from_basis_string (const char* basis) {
   po.ntrial = 33;
   po.mec_ne = 333;
   po.perturb = 0.01;
-  printf("ne,ndx_max %d po.ntrial %d po.mec_ne %d po.perturb %1.4f\n",
+  printf("    ne,ndx_max %d po.ntrial %d po.mec_ne %d po.perturb %1.4f\n",
          ne_max, po.ntrial, po.mec_ne, po.perturb);
   auto b = std::make_shared<Basis>(basis);
   if ( ! b->is_ok()) return;

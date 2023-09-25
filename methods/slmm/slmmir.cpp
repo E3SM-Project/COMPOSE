@@ -4,13 +4,13 @@
    This program runs our various SLMMIR algorithms on test cases. There are a
    number of options, as follows:
 
-   -method: Integration method, one of {ir, cdg, csl, pcsl}. Default: ir. ir is
+   -method: Integration method, one of {ir, cdg, isl, pisl}. Default: ir. ir is
      incremental remap; density Q_ki is propagated and then remapped. cdg is
      characteristic discontinuous Galerkin. csl is classical semi-Lagrangian,
      but with rho remapped; this is a technical option and in practice should
-     not be used. pcsl is pure CSL and should be used. pcsl is super fast
+     not be used. pcsl is pure ISL and should be used. pcsl is super fast
      compared with the others, so use it if you're just wanting to get a
-     solution of some sort.
+     solution of some sort. Alias pairs: (isl,csl), (pisl,pcsl).
    -ode: The ODE test case to run, one of {dcmip1d3ll, nondivergent, divergent,
      rotate, movingvortices}. Default: divergent.
    -ic: Initial condition, in {xyztrig, gaussianhills, cosinebells,
@@ -49,10 +49,12 @@
    -o: A string that is a prefix for all output files. Default: tmp/out
    -we: Output write interval, in time steps. Default: 1. Set to 0 to turn off
      output.
-   -io: I/O output type, in {netcdf, internal}. Default: netcdf. If netcdf,
+   -io-type: I/O output type, in {netcdf, internal}. Default: netcdf. If netcdf,
      write output for use in paraview; if internal, latlon output for python.
    -io-nodss: In the I/O DSS for q, inject just one value rather than summing
      according to the DSS.
+   -io-start-cycle: Wait to start output, except ICs, until this cycle. Cycle
+    count starts at 1.
    -res: Output resolution; depends on writer. If internal, half number of
      latitude points. Default: 64.
    -rit: Record scalar measurements in time. Output is a matlab file with a
@@ -62,6 +64,10 @@
    -footprint: Track ISL and CISL footprints.
    -midpoint-check: Output error analysis for midpoint of run w.r.t. to a
     high-res 1-step solution.
+   -rotate-grid: If provided, rotate the grid so that, in particular, it's not
+    aligned with the N-S poles and other features of the flows.
+   -rhot0: If provided, freeze rho at its initial value. Impl'ed for only CSL
+    methods.
 
    Debug and analysis options:
 
@@ -295,9 +301,11 @@ struct IntegrateOptions {
   // Netcdf or custom.
   IOType::Enum io_type;
   bool io_no_dss;
+  Int io_start_cycle;
   // If I/O is internal type, lat,lon grid resolution parameter.
   Int output_resolution;
   Int pg;
+  bool rhot0;
 };
 
 struct Input {
@@ -317,6 +325,7 @@ struct Input {
   bool xyz_form; // Integrate in (x,y,z) space instead of (lat,lon).
   IntegrateOptions integrate_options;
   std::string basis;
+  bool rotate_grid;
 
   // Super-duper debug/analysis options.
   struct Debug {
@@ -428,7 +437,7 @@ static void print_one_liner (const Input& in, const Output& out) {
 
 static void init_mesh (const Int np, const Int tq_order, const Int ne,
                        const Int nonunimesh, const MeshType::Enum mesh_type,
-                       Mesh& m) {
+                       Mesh::GridRotation* grid_rotation, Mesh& m) {
   m.np = MeshType::is_subcell(mesh_type) ? 2 : np;
   m.tq_order = tq_order;
   m.nonuni = nonunimesh;
@@ -440,6 +449,11 @@ static void init_mesh (const Int np, const Int tq_order, const Int ne,
     mesh::make_cubedsphere_mesh(m.geo_p, m.geo_c2n, ne);
   }
   if (m.nonuni) mesh::make_nonuniform(m.geo_p);
+  if (grid_rotation && grid_rotation->angle != 0) {
+    mesh::rotate_grid(grid_rotation->axis, grid_rotation->angle,
+                      grid_rotation->R, m.geo_p);
+    m.grid_rotation = *grid_rotation;
+  }
   mesh::make_cgll_from_geo(m.geo_p, m.geo_c2n, m.np, *m.basis, m.cgll_p, m.cgll_c2n);
   mesh::make_dgll_from_cgll(m.cgll_p, m.cgll_c2n, m.dglln2cglln, m.dgll_c2n);
   mesh::make_io_cgll_from_internal_cgll(m.cgll_p, m.cgll_c2n, m.cgll_io_c2n);
@@ -1152,7 +1166,7 @@ static void integrate (
 
   AVec3s departure_p, rho_departure_p;
   resize(departure_p, mi->nnodes());
-  if (opts.method == Method::csl)
+  if (opts.method == Method::isl)
     resize(rho_departure_p, nslices(m.geo_p));
 
   if (pg) {
@@ -1177,9 +1191,12 @@ static void integrate (
     Timer::start(Timer::ts_integrate);
     Real ts = dt*step;
     Real tf = step == last_step ? T : ts + dt;
+    const Int cycle = 1 + step / nsteps_per_12days;
 
     const bool do_io = ((ncw || iw) &&
-                        ((step+1) % write_every == 0 || step == last_step));
+                        (((step+1) % write_every == 0 &&
+                          cycle >= opts.io_start_cycle) ||
+                         step == last_step));
     const bool do_Qq = (Method::is_ci(opts.method) &&
                         (do_io || so || step == last_step));
 
@@ -1233,15 +1250,15 @@ static void integrate (
       mi->integrate(ts, tf, departure_p);
       break;
     case IntegrateOptions::bwd:
-      assert(Method::is_csl(opts.method));
+      assert(Method::is_isl(opts.method));
       mi->integrate(tf, ts, departure_p);
-      if (opts.method == Method::csl)
+      if (opts.method == Method::isl)
         mi->integrate(ts, tf, rho_departure_p);
       break;
     }
     Timer::stop(Timer::ts_integrate);
 
-    // CDG, IR, or CSL.
+    // CDG, IR, or ISL.
     Timer::start(Timer::ts_remap);
     switch (opts.method) {
     case Method::ir:
@@ -1250,31 +1267,32 @@ static void integrate (
                       tracer_p[0]->data(), tracer_p[1]->data(), nics,
                       density_p[0]->data(), density_p[1]->data());
       break;
-    case Method::csl:
-      remapper->remap(rho_departure_p, nullptr, nullptr, 0,
-                      density_p[0]->data(), density_p[1]->data());
-      remapper->csl(departure_p,
+    case Method::isl:
+      if ( ! opts.rhot0)
+        remapper->remap(rho_departure_p, nullptr, nullptr, 0,
+                        density_p[0]->data(), density_p[1]->data());
+      remapper->isl(departure_p,
                     tracer_p[0]->data(), tracer_p[1]->data(), nics,
                     density_p[0]->data(), density_p[1]->data(),
                     Filter::is_positive_only(opts.filter), false,
                     srcterm_tendency_ptr, srcterm_beg, srcterm_end, pg);
       break;
-    case Method::pcsl:
-    case Method::pcslu:
-      remapper->csl(departure_p,
+    case Method::pisl:
+    case Method::pislu:
+      remapper->isl(departure_p,
                     tracer_p[0]->data(), tracer_p[1]->data(), nics,
                     density_p[0]->data(), density_p[1]->data(),
-                    Filter::is_positive_only(opts.filter), true,
+                    Filter::is_positive_only(opts.filter), ! opts.rhot0,
                     srcterm_tendency_ptr, srcterm_beg, srcterm_end, pg);
       break;
     default: throw std::logic_error("Not a Method.");
     }
 
     if (opts.d2c)
-      dss(*d2cer, Method::is_csl(opts.method), nics, len, wrk.data(),
+      dss(*d2cer, Method::is_isl(opts.method), nics, len, wrk.data(),
           density_p[1]->data(), tracer_p[1]->data(),
-          // For pcsl* methods, csl routine takes care of rho DSS.
-          ! Method::is_pcsl(opts.method));
+          // For pisl* methods, isl routine takes care of rho DSS.
+          ! Method::is_pisl(opts.method));
 
     Timer::stop(Timer::ts_remap);
 
@@ -1309,7 +1327,7 @@ static void integrate (
     // Observer.
     if (so) {
       if (step % nsteps_per_12days == 0)
-        std::cout << "\nC cycle " << 1 + step / nsteps_per_12days << "\n";
+        std::cout << "\nC cycle " << cycle << "\n";
       const bool report = (((step + 1) % nsteps_per_12days == 0) ||
                            step == last_step);
       so->set_time(tf);
@@ -1415,7 +1433,7 @@ static Snapshot::Ptr make_midpoint_snapshot (
 {
   IntegrateOptions io;
   io.stepping = IntegrateOptions::bwd;
-  io.method = Method::pcslu; // 1 step with natural interpolant
+  io.method = Method::pislu; // 1 step with natural interpolant
   io.d2c = true;
   io.filter = Filter::none;
   io.limiter = Limiter::none;
@@ -1439,7 +1457,9 @@ static Snapshot::Ptr make_midpoint_snapshot (
   const auto& mesh = pref->m_f;
   mesh->basis = Basis::create(Basis::Type::gll);
   //const Int plus = 4, np = m.np >= 14-plus ? 16 : m.np + plus;
-  init_mesh(m.np, 4 /* unused */, ne, m.nonuni, MeshType::geometric, *mesh);
+  mesh->grid_rotation = m.grid_rotation;
+  init_mesh(m.np, 4 /* unused */, ne, m.nonuni, MeshType::geometric,
+            &mesh->grid_rotation, *mesh);
   pref->rd_f = pref->rd_t = std::make_shared<RemapData>(*mesh, io.method, io.dmc);
 
   const auto mi = MeshIntegratorFactory::create(ode, false, mesh->cgll_p);
@@ -1482,9 +1502,19 @@ static void run (const Input& in) {
   pref->experiment = in.p_refine_experiment;
 
   const auto m = std::make_shared<Mesh>();
-  m->basis = parse_basis(in.integrate_options.method, in.basis);
-  init_mesh(in.np, in.tq_order, in.ne, in.nonunimesh, in.mesh_type, *m);
-  pref->m_f = m;
+  {
+    m->basis = parse_basis(in.integrate_options.method, in.basis);
+    Mesh::GridRotation gr;
+    if (in.rotate_grid) {
+      // Some fixed but random angle.
+      gr.axis[0] = 0.11111; gr.axis[1] = -0.051515; gr.axis[2] = 1;
+      siqk::SphereGeometry::normalize(gr.axis);
+      gr.angle = 0.142314*M_PI;
+    }
+    init_mesh(in.np, in.tq_order, in.ne, in.nonunimesh, in.mesh_type,
+              in.rotate_grid ? &gr : nullptr, *m);
+    pref->m_f = m;
+  }
 
   MeshIntegrator::Ptr mi; {
     Mesh::Ptr m_coarse;
@@ -1511,6 +1541,7 @@ static void run (const Input& in) {
     case TimeInt::interpline: {
       m_coarse->np = in.timeint_v_np;
       m_coarse->nonuni = m->nonuni;
+      m_coarse->grid_rotation = m->grid_rotation;
       m_coarse->tq_order = m->tq_order;
       m_coarse->geo_p = m->geo_p;
       m_coarse->geo_nml = m->geo_nml;
@@ -1596,25 +1627,31 @@ Input::Input (int argc, char** argv)
     ne(5), nonunimesh(0), nsteps(120), write_every(1), np(4), tq_order(18),
     mesh_type(MeshType::geometric), xyz_form(false)
 {
+  assert(eq("-foo", "-foo") && eq("--foo", "-foo") && eq("--foo", "-f", "--foo") &&
+         eq("-f", "-f", "--foo"));
   program_name = argv[0];
-  integrate_options.stepping = IntegrateOptions::fwd;
-  integrate_options.d2c = false;
-  integrate_options.record_in_time = false;
-  integrate_options.check_midpoint = false;
-  integrate_options.lauritzen_diag = false;
-  integrate_options.lauritzen_diag_io = false;
-  integrate_options.perturb_rho = 0;
-  integrate_options.dmc = Dmc::none;
-  integrate_options.filter = Filter::none;
-  integrate_options.limiter = Limiter::mn2;
-  integrate_options.subcell_bounds = false;
-  integrate_options.fitext = false;
-  integrate_options.track_footprint = false;
-  integrate_options.io_type = IOType::netcdf;
-  integrate_options.io_no_dss = false;
-  integrate_options.output_resolution = 64;
-  integrate_options.pg = 0;
+  auto& iopts = integrate_options;
+  iopts.stepping = IntegrateOptions::fwd;
+  iopts.d2c = false;
+  iopts.record_in_time = false;
+  iopts.check_midpoint = false;
+  iopts.lauritzen_diag = false;
+  iopts.lauritzen_diag_io = false;
+  iopts.perturb_rho = 0;
+  iopts.dmc = Dmc::none;
+  iopts.filter = Filter::none;
+  iopts.limiter = Limiter::mn2;
+  iopts.subcell_bounds = false;
+  iopts.fitext = false;
+  iopts.track_footprint = false;
+  iopts.io_type = IOType::netcdf;
+  iopts.io_start_cycle = 0;
+  iopts.io_no_dss = false;
+  iopts.output_resolution = 64;
+  iopts.pg = 0;
+  iopts.rhot0 = false;
   p_refine_experiment = 0;
+  rotate_grid = false;
   bool tq_specified = false, method_specified = false;
   for (int i = 1; i < argc; ++i) {
     const std::string& token = argv[i];
@@ -1639,21 +1676,21 @@ Input::Input (int argc, char** argv)
       auto& ic = initial_conditions.back();
       ic.n = atoi(argv[++i]);
     } else if (eq(token, "-mono", "--monotone"))
-      integrate_options.filter = Filter::convert(argv[++i]);
+      iopts.filter = Filter::convert(argv[++i]);
     else if (eq(token, "-lim", "--limiter"))
-      integrate_options.limiter = Limiter::convert(argv[++i]);
-    else if (eq(token, "subcellbounds"))
-      integrate_options.subcell_bounds = true;
-    else if (eq(token, "fitext"))
-      integrate_options.fitext = true;
+      iopts.limiter = Limiter::convert(argv[++i]);
+    else if (eq(token, "-subcellbounds"))
+      iopts.subcell_bounds = true;
+    else if (eq(token, "-fitext"))
+      iopts.fitext = true;
     else if (eq(token, "-method", "--method")) {
       method_specified = true;
-      integrate_options.method = Method::convert(argv[++i]);
+      iopts.method = Method::convert(argv[++i]);
     }
     else if (eq(token, "-np"))
       np = atoi(argv[++i]);
     else if (eq(token, "-pg"))
-      integrate_options.pg = atoi(argv[++i]);
+      iopts.pg = atoi(argv[++i]);
     else if (eq(token, "-mesh"))
       mesh_type = MeshType::convert(argv[++i]);
     else if (eq(token, "-tq")) {
@@ -1665,35 +1702,45 @@ Input::Input (int argc, char** argv)
       nonunimesh = atoi(argv[++i]);
     else if (eq(token, "-we", "--write-every"))
       write_every = atoi(argv[++i]);
-    else if (eq(token, "-io"))
-      integrate_options.io_type = IOType::convert(argv[++i]);
+    else if (eq(token, "-io-start-cycle"))
+      iopts.io_start_cycle = atoi(argv[++i]);
+    else if (eq(token, "-io-type"))
+      iopts.io_type = IOType::convert(argv[++i]);
     else if (eq(token, "-io-nodss"))
-      integrate_options.io_no_dss = true;
+      iopts.io_no_dss = true;
     else if (eq(token, "-res"))
-      integrate_options.output_resolution = atoi(argv[++i]);
-    else if (eq(token, "-xyz", "--xyz"))
+      iopts.output_resolution = atoi(argv[++i]);
+    else if (eq(token, "-xyz"))
       xyz_form = true;
-    else if (eq(token, "-d2c", "--d2c"))
-      integrate_options.d2c = true;
-    else if (eq(token, "-dmc", "--dmc"))
-      integrate_options.dmc = Dmc::convert(argv[++i]);
+    else if (eq(token, "-d2c"))
+      iopts.d2c = true;
+    else if (eq(token, "-dmc"))
+      iopts.dmc = Dmc::convert(argv[++i]);
     else if (eq(token, "-rit", "--record_in_time"))
-      integrate_options.record_in_time = true;
-    else if (eq(token, "-midpoint-check", "--midpoint-check"))
-      integrate_options.check_midpoint = true;
-    else if (eq(token, "-lauritzen", "--lauritzen"))
-      integrate_options.lauritzen_diag = true;
-    else if (eq(token, "-lauritzen-io", "--lauritzen-io"))
-      integrate_options.lauritzen_diag_io = true;
+      iopts.record_in_time = true;
+    else if (eq(token, "-midpoint-check"))
+      iopts.check_midpoint = true;
+    else if (eq(token, "-lauritzen"))
+      iopts.lauritzen_diag = true;
+    else if (eq(token, "-lauritzen-io"))
+      iopts.lauritzen_diag_io = true;
     else if (eq(token, "-footprint", "--footprint"))
-      integrate_options.track_footprint = true;
-    else if (eq(token, "--write-binary-at"))
+      iopts.track_footprint = true;
+    else if (eq(token, "-write-binary-at"))
       debug.write_binary_at = atoi(argv[++i]);
+    else if (eq(token, "-perturb-rho"))
+      iopts.perturb_rho = atof(argv[++i]);
+    else if (eq(token, "-rotate-grid"))
+      rotate_grid = true;
+    else if (eq(token, "-rhot0"))
+      iopts.rhot0 = true;
+    else
+      SIQK_THROW_IF(true, "Unrecognized option: " << token);
   }
   if ( ! tq_specified) {
-    if (Dmc::is_facet(integrate_options.dmc))
+    if (Dmc::is_facet(iopts.dmc))
       tq_order = (np-1)*4;
-    else if ( ! Method::is_ir(integrate_options.method))
+    else if ( ! Method::is_ir(iopts.method))
       tq_order = np >= 4 ? 20 : 14;
     else
       tq_order = np == 5 ? 20 : np == 4 ? 18 : np == 3 ? 14 : 8;
@@ -1704,19 +1751,19 @@ Input::Input (int argc, char** argv)
   }
   if ( ! method_specified) {
     // Default method to the one natural for the quadrature geometry.
-    integrate_options.method = Dmc::is_facet(integrate_options.dmc) ?
+    iopts.method = Dmc::is_facet(iopts.dmc) ?
       Method::cdg : Method::ir;
   }
   if (initial_conditions.empty())
     initial_conditions.push_back(InitialCondition("xyztrig", 1));
-  if (Method::is_csl(integrate_options.method))
-    integrate_options.stepping = IntegrateOptions::bwd;
+  if (Method::is_isl(iopts.method))
+    iopts.stepping = IntegrateOptions::bwd;
   if (MeshType::is_subcell(mesh_type) &&
-      Dmc::is_facet(integrate_options.dmc) &&
-      Method::is_ir(integrate_options.method)) {
+      Dmc::is_facet(iopts.dmc) &&
+      Method::is_ir(iopts.method)) {
     std::cout << "WARNING: Switching to CDG; (QOF, IR) is not supported "
               << "for subcell mesh.\n";
-    integrate_options.method = Method::cdg;
+    iopts.method = Method::cdg;
   }
   SIQK_THROW_IF(p_refine_experiment == 1 && ! TimeInt::is_interp(timeint),
                 "For p_refine_experiment = 1, -timeint must be an interp type.");
@@ -1730,26 +1777,27 @@ Input::Input (int argc, char** argv)
       " p_refine_experiment to 0.\n";
     p_refine_experiment = 0;
   }
-  if ( ! integrate_options.record_in_time)
-    integrate_options.lauritzen_diag = false;
+  if ( ! iopts.record_in_time)
+    iopts.lauritzen_diag = false;
 #ifndef SLMMIR_LAURITZEN_DIAG
   std::cout << "Warning: Turning off Lauritzen diagnostics b/c not built.\n";
-  integrate_options.lauritzen_diag = false;
+  iopts.lauritzen_diag = false;
 #endif
   print(std::cout);
-  SIQK_THROW_IF(integrate_options.subcell_bounds &&
-                ! Method::is_csl(integrate_options.method),
-                "-subcellbounds and not CSL is not supported.");
-  SIQK_THROW_IF(integrate_options.limiter == Limiter::none &&
-                ! (integrate_options.filter == Filter::none ||
-                   integrate_options.filter == Filter::caas),
+  SIQK_THROW_IF(iopts.subcell_bounds && ! Method::is_isl(iopts.method),
+                "-subcellbounds and not ISL is not supported.");
+  SIQK_THROW_IF(iopts.limiter == Limiter::none &&
+                ! (iopts.filter == Filter::none ||
+                   iopts.filter == Filter::caas),
                 "-lim none is valid only with -mono none or caas");
-  SIQK_THROW_IF(integrate_options.pg > 0 &&
-                ( ! Dmc::use_homme_mass(integrate_options.dmc) ||
-                  ! Method::is_csl(integrate_options.method)),
-                "-pg requires Homme mass and is impl'ed for CSL only");
-  SIQK_THROW_IF(integrate_options.check_midpoint && nsteps % 2 != 0,
+  SIQK_THROW_IF(iopts.pg > 0 &&
+                ( ! Dmc::use_homme_mass(iopts.dmc) ||
+                  ! Method::is_isl(iopts.method)),
+                "-pg requires Homme mass and is impl'ed for ISL only");
+  SIQK_THROW_IF(iopts.check_midpoint && nsteps % 2 != 0,
                 "nsteps must be even to check the midpoint.");
+  SIQK_THROW_IF(iopts.rhot0 && ! Method::is_isl(iopts.method),
+                "-rhot0 is impl'ed only for ISL methods.");
 }
 
 void Input::print (std::ostream& os) const {
