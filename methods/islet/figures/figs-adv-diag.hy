@@ -1,60 +1,12 @@
 (require [amb3 [*]])
 (import amb3 [amb3 [*]]
         [figsutils [*]]
-        math glob struct os)
+        math glob struct os matplotlib.ticker)
 
 (assoc matplotlib.rcParams "savefig.dpi" 300)
 (do (pl-require-type1-fonts))
 
 (sv gmd2 True)
-
-;;; parse cmd, L, M, C slmmir output
-
-(defn acc-parse [fname &optional map-nstepfac]
-  (sv txt (.split (readall fname) "\n")
-      bo None d {})
-  (for [ln txt]
-    (sv ln2 (cut ln 0 2))
-    (cond [(and (= "cm" ln2) (in "cmd>" ln))
-           (sv cmd ln c (parse-cmd ln :map-nstepfac map-nstepfac))]
-          [(= ln2 "M ")
-           (sv mp (parse-midpoint-check ln))
-           (unless (none? (geton d #*(+ (cmd->key-base c)
-                                        (, (:ic mp) cyc (:ne c) :M))))
-             ;; handle repeated ic used for src-term OOA testing.
-             (assoc mp :ic (+ (:ic mp) "-src")))
-           (assoc-nested d (+ (cmd->key-base c) (, (:ic mp) cyc (:ne c) :M))
-                         {:l1 (:l1 mp) :l2 (:l2 mp)})]
-          [(= ln2 "C ")
-           (cond [(in "cycle" ln) (sv (, - - cyc) (sscanf ln "s,s,i"))]
-                 [(or (in "PASS" ln) (in "FAIL" ln))
-                  (sv (, - pf) (sscanf ln "s,s"))
-                  (when (and (= pf "FAIL") (!= (:mono c) "none") (<= cyc 10))
-                    (prf "FAIL {}" cmd))]
-                 [:else
-                  (sv cl (parse-C ln))
-                  (unless (none? (geton d #*(+ (cmd->key-base c)
-                                               (, (:ic cl) cyc (:ne c) :C))))
-                    ;; handle repeated ic used for src-term OOA testing.
-                    (assoc cl :ic (+ (:ic cl) "-src")))
-                  (assoc-nested d (+ (cmd->key-base c) (, (:ic cl) cyc (:ne c) :C))
-                                cl)])]
-          [(= ln2 "L ")
-           (cond [(in "L file" ln)
-                  (assoc-nested d (+ (cmd->key-base c)
-                                     (, "cos" cyc (:ne c) :L :mixing-file))
-                                (last (.split ln)))]
-                 [(in "phimin" ln)
-                  (sv (, - ic - l1 - l2 - li - phimin - phimax)
-                      (sscanf ln "s,s,s,f,s,f,s,f,s,f,s,f"))
-                  (assoc-nested d (+ (cmd->key-base c) (, ic cyc (:ne c) :Lerr))
-                                {:l1 l1 :l2 l2 :li li :phimin phimin :phimax phimax})]
-                 [:else
-                  (sv bo (parse-bakeoff-diag bo ln (:timeint c)))
-                  (when (:done bo)
-                    (assoc-nested d (+ (cmd->key-base c) (, "cos" cyc (:ne c) :L)) bo)
-                    (sv bo None))])]))
-  d)
 
 ;;; print a long table of all accuracy results
 
@@ -194,6 +146,15 @@
 
 ;;; accuracy figs
 
+(defn show-logy-ticks [&optional ax]
+  (svifn ax (pl.gca))
+  (sv ma (matplotlib.ticker.LogLocator :base 10, :numticks 100))
+  (ax.yaxis.set-major-locator ma)
+  (sv mi (matplotlib.ticker.LogLocator :base 10 :subs (npy.linspace 0.1 1 10)
+                                       :numticks 100))
+  (ax.yaxis.set-minor-locator mi)
+  (ax.yaxis.set-minor-formatter (matplotlib.ticker.NullFormatter)))
+
 (defclass AccFig []
   (defn --init-- [me])
 
@@ -205,7 +166,7 @@
      :nps c.nps :nes c.nes :pat-line "-" :pat-clr (.copy c.npclrs) :C-line :C
      :pat-mark (.copy c.npmarks) :fs 11 :lw 1 :markersize 4 :yform :log2
      :xticks :degrees :ooa-text False :filter-floor None :figsize (, 4 4)
-     :ref-ooa-2 False :ref-cos-033 True :pg None})
+     :ref-ooa-2 False :ref-cos-033 True :pg None :jcp False})
 
   (defn plot [me ax d-all &optional [o None]]
     (svifn o (me.get-defaults))
@@ -215,6 +176,7 @@
         gray (* 0.5 (npy.ones 3))
         y-ext [1e10 -1e10])
     (when (none? d1) (return))
+    (sv x-min 1000 x-max 0)
     (for [np (:nps o)]
       (sv keys (if (none? (:pg o))
                    (, np (:ic o) (:cyc o))
@@ -224,12 +186,20 @@
           d2 (geton d1 #*keys))
       (when (none? d2) (continue))
       (sv x [] y [])
-      (for [ne (:nes o)]
-        (sv val (geton d2 ne (:C-line o) (:measure o)))
+      (for [tne (:nes o)]
+        (sv ne-key (if (:jcp o)
+                     (jcp-tne2ne tne np)
+                     tne)
+            tne-actual (if (:jcp o)
+                         (jcp-effective-tne tne np)
+                         tne)
+            val (geton d2 ne-key (:C-line o) (:measure o)))
         (when (none? val) (continue))
         (unless (none? (:filter-floor o))
           (when (< val (:filter-floor o)) (continue)))
-        (.append x ne)
+        (sv x-min (min x-min tne-actual)
+            x-max (max x-max tne-actual))
+        (.append x tne-actual)
         (.append y val)
         (sv (get y-ext 0) (min (get y-ext 0) val)
             (get y-ext 1) (max (get y-ext 1) val)))
@@ -258,21 +228,24 @@
                    :fontsize (:fs o))
         (pl.xlabel "Dynamics grid resolution" :fontsize (:fs o))
         (cond [(= (:yform o) :log2)
-               (pl.yticks (list (range -40 10)) :fontsize (:fs o))])
-        (when (and (:ref-cos-033 o) (= (:ic o) "cos") (= (:ode o) "nondivergent"))
-          (pl-plot xtform (* 0.033 (npy.ones (len xtform))) "-."
-                   :zorder -10 :lw (:lw o) :color gray)))
-      (when (:ooa-text o)
+               (pl.yticks (list (range -40 10)) :fontsize (:fs o))]))
+      (when (and (:ooa-text o) (> (len x) 1))
         (sv i (- (len x) 2))
-        (pl.text (+ (get xtform (inc i)) -0.08) (* (get ytform (inc i)) 2)
+        (pl.text (+ (get xtform (inc i)) -0.08)
+                 (* (get ytform (inc i)) (if (= (:measure o) :l2) 0.25 2))
                  (.format "{:1.1f}"
                           (first (calc-ooa (cut y i (+ i 2))
                                            :x (cut x i (+ i 2)))))))
       (when (= np (last (:nps o)))
+        (when (and (:ref-cos-033 o) (= (:ic o) "cos") (= (:ode o) "nondivergent"))
+          (pl-plot (npy.log2 (npa [x-min x-max]))
+                   (* 0.033 (npy.ones 2)) "-."
+                   :zorder -10 :lw (:lw o) :color gray))
         (when (:ref-ooa-2 o)
           (sv ytref (y-tfn (* 0.7 (first y-ext) (** (/ (last x) (npa x)) 2))))
           (pl-plot xtform ytref ":" :color gray))
         (when (= (:yform o) :semilogy)
+          (show-logy-ticks)
           (sv (, y ys) (pl.yticks))
           (when (> (/ (last y) (first y)) 1e3)
             (for [i (range (len ys))]
@@ -504,6 +477,139 @@
             (pl.ylim (, (/ (first ye) 4) (nextpow10 (second ye)))))
           :ref-ooa-2 True)))
 
+(defn figs-acc-jcp [c d]
+  (sv prefix ""
+      ref-ooa-2 False
+      legend True
+      general-timeint "exact"
+      general-prefine 0
+      pp False
+      jcp True)
+  (sv p (AccFig)
+      o (p.get-defaults c))
+  (assoc o :ode "nondivergent" :ic "gau" :nstepfac 5
+         :yform :semilogy :cdrglb "none" :cdrlcl "none"
+         :timeint general-timeint :prefine general-prefine
+         :filter-floor None :jcp True :ref-cos-033 False)
+  (defn plot [spi o plot-fn &optional [ref-ooa-2 False] xlabel]
+    (svifn xlabel "Resolution")
+    (sv fname (+ prefix "acc-" (:ode o) "-" (:ic o)
+                 "-" (:timeint o) "-" (if (= (:cdrglb o) "none")
+                                          "nopp" "pp")
+                 "-fac" (str (:nstepfac o))
+                 "-jcp"))
+    (print fname)
+    (do
+      (sv ax (pl.subplot 1 2 (inc spi)))
+      (plot-fn ax d o)
+      (my-grid)
+      (sv legs [(, "k-" "$l_2$")])
+      (when (= ic "gau")
+        (.append legs (, "k--" "$l_{\infty}$")))
+      (when ref-ooa-2 (.append legs (, "k:" "OOA 2")))
+      (when legend (p.legend ax legs :o o))
+      (pl.ylabel "$\log_{10}$ relative error")
+      (pl.xlabel xlabel)
+      (sv flowname (flow-short2long (:ode o))
+          flowname (+ (.upper (first flowname)) (cut flowname 1))
+          f (pl.gcf))
+      (f.text (+ (* 0.5 spi) 0.05) 0.05
+              (if (zero? spi) "(a)" "(b)") :fontsize (:fs o))
+      (p.title (+ flowname ", "
+                  (ic-short2long (cut (:ic o) 0 3)) ", "
+                  (nstepfac->word (:nstepfac o)) " steps") o)))
+  (for [nstepfac (, 1 5)]
+    (with [(pl-plot (, 8 4) (+ c.fig-dir "acc-jcp-nstepfac" (str nstepfac)))]
+      (for [(, iic ic) (enumerate (, "gau" "cos"))
+            ode (, "nondivergent")]
+        (assoc o :nstepfac nstepfac :ooa-text None :ode ode
+               :ic ic)
+        (plot iic o
+              (fn [ax d o]
+                (sv ye [1e10 -1e10])
+                (defn update-ye [ye1]
+                  (when (none? ye1) (return))
+                  (sv (get ye 0) (min (first ye) (first ye1))
+                      (get ye 1) (max (last ye) (last ye1))))
+                (for [norm (, :l2 :li)]
+                  (when (and (= norm :li) (= ic "cos")) (continue))
+                  (assoc o :cdrglb (if pp "caas" "none") :timeint "exact" :prefine 0
+                         :measure norm :pat-line (if (= norm :l2) "-" "--")
+                         :ref-ooa-2 (and (!= ic "gau") (= norm :l2))
+                         :ooa-text (and (= ic "gau") (= norm :l2) (= nstepfac 1)))
+                  (sv ye1 (p.plot ax d o))
+                  (update-ye ye1))
+                (case/eq ic
+                         ["cos"
+                          (pl.ylim (, (/ (first ye) 3) 0.4))]
+                         ["gau"
+                          (pl.ylim (, (/ (first ye) 60) 0.5))]))
+              :ref-ooa-2 (and ref-ooa-2 (!= ic "slo")))))))
+
+(defn figs-vortex-acc-jcp [c d]
+  (sv prefix ""
+      ref-ooa-2 False
+      legend True
+      general-timeint "exact"
+      general-prefine 0
+      show-linf True
+      pp False
+      jcp True)
+  (sv p (AccFig)
+      o (p.get-defaults c))
+  (assoc o :ode "movingvortices" :ic "vor"
+         :yform :semilogy :cdrglb "none" :cdrlcl "none"
+         :timeint general-timeint :prefine general-prefine
+         :filter-floor None :jcp True)
+  (defn plot [spi o plot-fn &optional [ref-ooa-2 False] xlabel]
+    (svifn xlabel "Resolution")
+    (sv fname (+ prefix "acc-" (:ode o) "-" (:ic o)
+                 "-" (:timeint o) "-" (if (= (:cdrglb o) "none")
+                                          "nopp" "pp")
+                 "-fac" (str (:nstepfac o))
+                 "-jcp"))
+    (print fname)
+    (do
+      (sv ax (pl.subplot 1 2 (inc spi)))
+      (plot-fn ax d o)
+      (my-grid)
+      (sv legs [(, "k-" "$l_2$")])
+      (when ref-ooa-2 (.append legs (, "k:" "OOA 2")))
+      (when legend (p.legend ax legs :o o))
+      (pl.ylabel "$\log_{10}$ relative error")
+      (pl.xlabel xlabel)
+      (sv flowname (flow-short2long (:ode o))
+          flowname (+ (.upper (first flowname)) (cut flowname 1))
+          f (pl.gcf))
+      (f.text (+ (* 0.5 spi) 0.05) 0.05
+              (if (zero? spi) "(a)" "(b)") :fontsize (:fs o))
+      (p.title (+ flowname ", "
+                  (nstepfac->word (:nstepfac o)) " steps, "
+                  "cycle " (str (:cyc o))) o)))
+  (for [nstepfac (, 1 5)]
+    (with [(pl-plot (, 8 4)
+                    (+ c.fig-dir "vortex-acc-jcp-nstepfac" (str nstepfac)))]
+      (for [(, icyc cycle) (enumerate (, 1 2))
+            ode (, "moving vortices")]
+        (assoc o :nstepfac nstepfac :ooa-text None :cyc cycle)
+        (plot icyc o
+              (fn [ax d o]
+                (sv ye [1e10 -1e10])
+                (defn update-ye [ye1]
+                  (when (none? ye1) (return))
+                  (sv (get ye 0) (min (first ye) (first ye1))
+                      (get ye 1) (max (last ye) (last ye1))))
+                (for [norm (, :l2)]
+                  (when (and (= norm :li) (not show-linf)) (continue))
+                  (assoc o :cdrglb (if pp "caas" "none") :timeint "exact" :prefine 0
+                         :measure norm :pat-line (if (= norm :l2) "-" "--")
+                         :ref-ooa-2 False :ooa-text (and (= norm :l2) (zero? icyc)))
+                  (sv ye1 (p.plot ax d o))
+                  (update-ye ye1))
+                (pl.ylim (, (/ (first ye) (if (zero? icyc) 60 6))
+                            (* (second ye) 1.5))))
+              :ref-ooa-2 False)))))
+
 ;;; filament diagnostic
 
 (defn fig-filament [c d-all]
@@ -550,16 +656,58 @@
                  (.format (if 0 "$n_p$ {}{}" "$n_p$ {} {}") np extra)
                  :fontsize (+ (:fs o) 2))))))
 
+(defn fig-filament-jcp [c d-all]
+  (defn get-pat [nstepfac ne]
+    (+ (get {20 "r." 40 "k"} ne)
+       (get {1 "-" 5 "--"} nstepfac)))
+  (sv p (AccFig) o (p.get-defaults c)
+      tnes (, 20 40)
+      nc (len c.nps))
+  (with [(pl-plot (, 10 4) (+ c.fig-dir "filament-jcp") :tight False)]
+    (for [(, itne tne) (enumerate tnes)]
+      (for [(, inp np) (enumerate c.nps)]
+        (sv spi (inc (+ (* itne (len c.nps)) inp))
+            ;;ax (pl.subplot 2 (len c.nps) spi)
+            ax (pl.axes [(/ inp nc) (/ (% (inc itne) 2) 2)
+                         (* 0.95 (/ 1 nc)) (* 0.95 (/ 1 2))])
+            ne (jcp-tne2ne tne np))
+        (for [nstepfac (, 1 5)]
+          (sv d (get d-all "exact" "nondivergent" nstepfac
+                     "pcsl" "none" "none" 0
+                     np "cos" 1))
+          (when (none? (geton d ne)) (continue))
+          (sv thr (get d ne :L :thr)
+              fil (get d ne :L :fil))
+          (pl.plot thr fil (get-pat nstepfac tne)
+                   :label (.format "{} step" (nstepfac->word nstepfac)))
+          (pl.xticks [0 0.2 0.4 0.6 0.8 1] :fontsize (:fs o))
+          (pl.xlim (, 0.05 1.05))
+          (pl.ylim (, -5 125))
+          (sv yl (pl.ylim))
+          (my-grid)
+          (when (= spi (* 2 (len c.nps)))
+            (pl.legend :loc "center" :fontsize (:fs o) :frameon False))
+          (sv yt [0 20 40 60 80 100 120]
+              xt [0.2 0.4 0.6 0.8 1.0])
+          (if (zero? inp)
+            (pl.yticks yt)
+            (pl.yticks yt (* [""] (len yt))))
+          (if (zero? itne)
+            (pl.xticks xt (* [""] (len xt)))
+            (pl.xticks xt)))
+        (pl.text 0.1 (+ 0 (* 0.05 (npy.diff yl)))
+                 (.format "$n_e \, {}$, $n_p \, {}$" ne np)
+                 :fontsize (+ (:fs o) 2))))))
+
 ;;; mixing diagnostic
 
 (defn triplot-read-dat [fname]
-    (sv raw (with [f (open fname "rb")]
-            (.read f))
+  (sv raw (with [f (open fname "rb")] (.read f))
       n (first (struct.unpack "i" (get raw (slice 0 4))))
       data (npy.zeros (* 2 n)))
   (for [i (range (* 2 n))]
     (sv os (+ 4 (* 4 i))
-        (get data i) (first (struct.unpack "f" (cut raw os (+ os 4))))))
+        (get data i) (first (struct.unpack "f" (get raw (slice os (+ os 4)))))))
   (sv cb (cut data 0 n)
       ccb (cut data n (* 2 n)))
   (, cb ccb))
@@ -597,6 +745,38 @@
     (text x 0.32 "$l_r$" 'lr 'me-lr)
     (text x 0.11 "$l_u$" 'lu 'me-lu)))
 
+(defn triplot-jcp [cb ccb &optional [data None]]
+  (defn triplot-curve [x]
+    (+ 0.9 (* -0.8 x x)))
+  (sv x (npy.linspace 0.1 1 100)
+      lw 2)
+  (pl.plot x (triplot-curve x) "k-" :lw lw)
+  (sv tl (triplot-curve (last x))
+      br (triplot-curve (first x)))
+  (pl.plot x (* (triplot-curve (first x)) (npy.ones (len x))) "k-" :lw lw)
+  (pl.plot (npy.ones (len x)) (npy.linspace tl br (len x)) "k-" :lw lw)
+  (pl.plot x (npy.linspace br tl (len x)) "k-" :lw lw)
+  (pl.plot cb ccb "r." :markersize 1)
+  (pl.xlim -0.02 1.05)
+  (pl.ylim  0.02 0.97)
+  (sv t [0.0 0.2 0.4 0.6 0.8 1])
+  (pl.xticks t []) (pl.yticks t [])
+  (my-grid)
+  ;(pl.axis "off")
+  (defn text [x y txt sym]
+    (pl.text x (+ y 0.1) txt)
+    (sv dx 0.1)
+    (pl.text (+ x dx) (+ y 0.1) (.format "{:1.2e}" (get data sym))))
+  (unless (none? data)
+    (sv x 0.03)
+    (pl.text x 0.04 (.format "$n_e \, {}$, $n_p \, {}$, {} step"
+                             (get data 'ne) (get data 'np)
+                             (nstepfac->word (get data 'nstepfac)))
+             :fontsize 11)
+    (text x 0.32 "$l_r$" 'lr)
+    (text x 0.21 "$l_u$" 'lu)
+    (text x 0.1 "$l_o$" 'lo)))
+
 (defn figs-mixing [c d]
   (sv p (AccFig) o (p.get-defaults c))
   (for [ne (, 20 40)]
@@ -617,6 +797,32 @@
           (prf "{}: lo {} {}" (:mixing-file e) (get e :mixing :lo)
                (get e me-mixing :lo)))
         (triplot cb ccb :data data)))))
+
+(defn figs-mixing-jcp [c d]
+  (sv p (AccFig) o (p.get-defaults c)
+      nc (len (:nps o)))
+  (for [tne (, 20 40)]
+    (with [(pl-plot (, 8.3 3.5)
+                    (+ c.fig-dir "mixing-tne" (str tne) "-jcp")
+                    :format "png" :tight False)]
+      (for [(, instepfac nstepfac) (enumerate (, 1 5))
+            (, inp np) (enumerate (:nps o))]
+        (sv spi (inc (+ (* instepfac (len (:nps o))) inp))
+            ax (pl.axes [(/ inp nc) (/ (% (inc instepfac) 2) 2)
+                         (* 0.95 (/ 1 nc)) (* 0.95 (/ 1 2))])
+            ne (jcp-tne2ne tne np)
+            - (print np ne)
+            e (get d "exact" "nondivergent" nstepfac "pcsl"
+                   "none" "none" 0 np
+                   "cos" 1 ne :L)
+            (, cb ccb) (triplot-read-dat (+ c.data-dir (:mixing-file e)))
+            data {'ne ne 'np np 'nstepfac nstepfac
+                  'lr (get e :mixing :lr)
+                  'lu (get e :mixing :lu)
+                  'lo (get e :mixing :lo)})
+        (unless (and (zero? (get e :mixing :lo)) (zero? (get e me-mixing :lo)))
+          (prf "{}: lo {}" (:mixing-file e) (get e :mixing :lo)))
+        (triplot-jcp cb ccb :data data)))))
 
 ;;; slotted cylinders images
 
@@ -1025,7 +1231,7 @@
     (sv d.data (stabgrind-parse s ne :d d.data)))
   d)
 
-(defn stabgrind-fig [c ds outname &optional ic]
+(defn stabgrind-fig [c ds outname &optional ic map-ne-equivalent]
   (svifn ic "gau")
   (sv nes (, 5 10 20 40 60 80)
       yl (, 1e-11 1)
@@ -1033,8 +1239,8 @@
       ;;fsz (, 4 8) sbs (, 2 1)
       fs 12
       np (. (first ds) s np))
-  (defn xticks-ne []
-    (sv xa (nes->degstrs nes))
+  (defn xticks-ne [nes]
+    (sv xa (nes->degstrs nes :convert-all True))
     (pl.xticks (npy.log2 (:ne xa)) (:deg xa) :fontsize fs))
   (defn xticks-cnt []
     (sv xa (npy.array (list (, 1 10 100))))
@@ -1051,18 +1257,21 @@
   (for [d ds]
     (assert (= d.type 'stabgrind-read))
     (sv s d.s keys (stabgrind-keys s)
-        x [] cls [])
+        x [] cls [] ne-keys [])
     (for [ne nes]
       (sv cl (geton d.data #*(+ keys (, ic ne))))
       (when (none? cl) (continue))
-      (.append x ne)
+      (.append ne-keys ne)
+      (.append x (if (none? map-ne-equivalent)
+                   ne
+                   (map-ne-equivalent ne np)))
       (.append cls cl))
-    (sv d.nes x d.cls cls))
+    (sv d.nes x d.cls cls d.ne-keys ne-keys))
   (with [(pl-plot fsz outname)]
     (pl.subplot #*sbs 1)
     (for [d ds]
       (sv s d.s keys (stabgrind-keys s)
-          ncyc (len (get d.data #*(+ keys (, ic (first d.nes))))))
+          ncyc (len (get d.data #*(+ keys (, ic (first d.ne-keys))))))
       (for [cyc (, 1 10 100)]
         (when (> cyc ncyc) (break))
         (sv y [])
@@ -1072,6 +1281,7 @@
         (pl.semilogy (npy.log2 d.nes) y
                      (make-pat s.basis s.nstepfac :marker True)
                      :fillstyle "none")))
+    (show-logy-ticks)
     (do
      (sv xl (pl.xlim))
      (for [basis (, "Gll" "GllNodal") nstepfac (, 1 5)]
@@ -1084,8 +1294,8 @@
     (sv letter-y (* (second yl) 0.5)
         f (pl.gcf))
     (f.text 0.02 0.05 "(a)" :fontsize fs)
-    (xticks-ne) (yticks) (pl.ylim yl) (my-grid)
-    (pl.xlabel "Reference resolution" :fontsize fs)
+    (xticks-ne d.nes) (yticks) (pl.ylim yl) (my-grid)
+    (pl.xlabel "Resolution" :fontsize fs)
     (pl.ylabel "log$_{10}$ $l_2$ relative error" :fontsize fs)
     (pl.title "Error vs. resolution at 1, 10, and 100 cycles"
               :fontsize fs)
@@ -1096,6 +1306,7 @@
         (sv y [])
         (for [cl cls] (.append y (:l2 cl)))
         (pl.loglog (range 1 (inc (len y))) y (make-pat s.basis s.nstepfac))))
+    (show-logy-ticks)
     (f.text 0.52 0.05 "(b)" :fontsize fs)
     (pl.xlabel "Cycle" :fontsize fs)
     (pl.ylabel "log$_{10}$ $l_2$ relative error" :fontsize fs)
@@ -1226,9 +1437,10 @@
   (sv c (get-context)
       c.nps (, 4 6 7 8 9 10 11 12 13)
       d (acc-parse (+ c.data-dir fname)
-                   :map-nstepfac (if 0
-                                     (fn [n] (get {0.5 1 1 1 2.5 5 5 5} n))
-                                     (fn [n] (if (<= n 1) 1 5)))))
+                   :map-nstepfac
+                   (if 0
+                     (fn [n &rest r] (get {0.5 1 1 1 2.5 5 5 5} n))
+                     (fn [n &rest r] (if (<= n 1) 1 5)))))
   (figs-acc c d :prefix "ne2x-dt1x-" :ref-ooa-2 False :legend False
             :general-timeint "exact" :general-prefine 0 :show-linf False
             :pp True))
@@ -1244,19 +1456,56 @@
                      (first p) ".bin")))
   (img-instab c pairs (+ c.fig-dir "img-instab")))
 
-(when-inp ["fig-stabgrind"]
+(when-inp ["resolution-pairs"]
+  ;; Good np based on (1) matching the np=4 number of grid points (* ne 3) and
+  ;; (2) OOA is a jump over previous np: 4, 6, 11, 13. We also want to include 8
+  ;; or 9, probably 8.
+  (for [ne (, 20 40)]
+    (prf ">>> {}" ne)
+    (sv res-tgt (* ne 3))
+    (for [np (range 4 14)]
+      (sv ene (math.floor (/ res-tgt (dec np))))
+      (prf "{:2d}: {:2d} {:3d}" np ene (* (dec np) ene)))))
+
+(when-inp ["fig-stabgrind-jcp"]
   (sv c (get-context)
       ode "nondivergent"
       np 11
       nes (, 5 10 20 40 80)
       ds [])
   (for [basis (, "Gll" "GllNodal")
-        nstepfac (, 1 5)
-        ]
+        nstepfac (, 1 5)]
     (sv s (stabgrind-make-spec
            (+ "data/mar21/batch1" (if (= basis "Gll") "6" "5"))
            ode basis np nstepfac nes
            :ncycle (if (= basis "Gll") 20 100))
         d (stabgrind-read s))
     (unless (none? d) (.append ds d)))
-  (stabgrind-fig c ds (+ c.fig-dir "fig-stabgrind")))
+  (stabgrind-fig c ds (+ c.fig-dir "fig-stabgrind")
+                 :map-ne-equivalent jcp-np4-ne))
+
+(when-inp ["figs-acc-jcp"]
+  (sv c (jcp-context (get-context))
+      c.nes [10 20 40 80 160]
+      d (acc-parse (+ c.data-dir "acc-jcp.txt")
+                   :map-nstepfac jcp-nenp2nstepfac))
+  (figs-acc-jcp c d))
+
+(when-inp ["figs-vortex-acc-jcp"]
+  (sv c (jcp-context (get-context))
+      c.nes [10 20 40 80 160]
+      d (acc-parse (+ c.data-dir "vortex-jcp.txt")
+                   :map-nstepfac jcp-nenp2nstepfac))
+  (figs-vortex-acc-jcp c d))
+
+(when-inp ["figs-mixing-jcp"]
+  (sv c (jcp-context (get-context))
+      d (acc-parse (+ c.data-dir "mixing-jcp.txt")
+                   :map-nstepfac jcp-nenp2nstepfac))
+  (figs-mixing-jcp c d))
+
+(when-inp ["fig-filament-jcp"]
+  (sv c (jcp-context (get-context))
+      d (acc-parse (+ c.data-dir "mixing-jcp.txt")
+                   :map-nstepfac jcp-nenp2nstepfac))
+  (fig-filament-jcp c d))

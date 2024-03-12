@@ -3,8 +3,8 @@
 
 (defn get-context []
   (sv c (Box)
-      c.data-dir "data/"
-      c.fig-dir "figs/"
+      c.data-dir "data/mar21/"
+      c.fig-dir "figs/drafts/"
       c.odes (, "rotate" "divergent" "nondivergent")
       c.cdrs (, (, "none" "none") (, "caas-node" "caas") (, "caas" "caas"))
       c.nstepfacs (, 1 5)
@@ -14,31 +14,87 @@
       c.nes (, 5 10 20 40 80)
       c.nps (, 4 6 8 9 12) ;(, 4 5 6 7 8 9 10 11 12 13 16)
       c.ics (, "gau" "cos" "slo")
-      c.npclrs  {4 "g" 5 "m" 6 "r" 7 "c" 8 "k" 9 "b" 10 "g" 11 "c" 12 "m" 13 "m" 16 "g"}
+      c.npclrs  {4 "g" 5 "m" 6 "r" 7 "c" 8 "k" 9 "b" 10 "g" 11 "c" 12 "r" 13 "m" 16 "g"}
       c.npmarks {4 "o" 5 "x" 6 "s" 7 "x" 8 "p" 9 "+" 10 "." 11 "^" 12 "." 13 "*" 16 "."})
   c)
 
 (defn flow-short2long [flow]
   (get {"divergent" "divergent flow"
         "nondivergent" "nondivergent flow"
-        "rotate" "solid-body rotation"} flow))
+        "rotate" "solid-body rotation"
+        "movingvortices" "moving vortices"} flow))
 
 (defn ic-short2long [ic]
   (get {"gau" "Gaussian hills"
         "cos" "cosine bells"
         "slo" "slotted cylinders"} ic))
 
-(defn nes->degstrs [nes]
+(defn nes->degstrs [nes &optional [convert-all False]]
   (sv x [] xstr [])
   (for [ne nes]
-    (sv deg (geton {5 6 10 3 20 "1.5" 40 "0.75" 80 "0.375" 160 "0.1875"} ne))
-    (when (none? deg) (continue))
+    (sv deg (geton {2 15 5 6 10 3 20 "1.5" 40 "0.75" 80 "0.375" 160 "0.1875"} ne))
     (.append x ne)
-    (.append xstr (.format "${}^{{\circ}}$" deg)))
+    (if (none? deg)
+      (do (sv deg (/ 30 ne))
+          (.append xstr (.format "${:1.4f}^{{\circ}}$" deg)))
+      (.append xstr (.format "${}^{{\circ}}$" deg))))
   {:ne x :deg xstr})
 
 (defn cdr-name [short]
   (get {"caas" "CAAS-CAAS" "caas-node" "CAAS-point"} short))
+
+;;; parse cmd, L, M, C slmmir output
+
+(defn acc-parse [fname &optional map-nstepfac]
+  (sv txt (.split (readall fname) "\n")
+      bo None d {})
+  (for [ln txt]
+    (sv ln2 (cut ln 0 2))
+    (cond [(and (= "cm" ln2) (in "cmd>" ln))
+           (sv cmd ln c (parse-cmd ln :map-nstepfac map-nstepfac))]
+          [(= ln2 "M ")
+           (sv mp (parse-midpoint-check ln))
+           (unless (none? (geton d #*(+ (cmd->key-base c)
+                                        (, (:ic mp) cyc (:ne c) :M))))
+             ;; handle repeated ic used for src-term OOA testing.
+             (assoc mp :ic (+ (:ic mp) "-src")))
+           (assoc-nested d (+ (cmd->key-base c) (, (:ic mp) cyc (:ne c) :M))
+                         {:l1 (:l1 mp) :l2 (:l2 mp)})]
+          [(= ln2 "C ")
+           (cond [(in "cycle" ln) (sv (, - - cyc) (sscanf ln "s,s,i"))]
+                 [(or (in "PASS" ln) (in "FAIL" ln))
+                  (sv (, - pf) (sscanf ln "s,s"))
+                  (when (and (= pf "FAIL") (!= (:mono c) "none") (<= cyc 10))
+                    (prf "FAIL {}" cmd))]
+                 [:else
+                  (sv cl (parse-C ln))
+                  (unless (none? (geton d #*(+ (cmd->key-base c)
+                                               (, (:ic cl) cyc (:ne c) :C))))
+                    ;; handle repeated ic used for src-term OOA testing.
+                    (assoc cl :ic (+ (:ic cl) "-src")))
+                  #_(print "found:" (+ (cmd->key-base c) (, (:ic cl) cyc (:ne c) :C)))
+                  (assoc-nested d (+ (cmd->key-base c) (, (:ic cl) cyc (:ne c) :C))
+                                cl)])]
+          [(= ln2 "L ")
+           (cond [(in "L file" ln)
+                  (assoc-nested d (+ (cmd->key-base c)
+                                     (, "cos" cyc (:ne c) :L :mixing-file))
+                                (last (.split ln)))
+                  ;; If nothing else has marked bo as done, do it now.
+                  (unless (none? bo)
+                    (assoc bo :done True))]
+                 [(in "phimin" ln)
+                  (sv (, - ic - l1 - l2 - li - phimin - phimax)
+                      (sscanf ln "s,s,s,f,s,f,s,f,s,f,s,f"))
+                  (assoc-nested d (+ (cmd->key-base c) (, ic cyc (:ne c) :Lerr))
+                                {:l1 l1 :l2 l2 :li li :phimin phimin :phimax phimax})]
+                 [:else
+                  (sv bo (parse-bakeoff-diag bo ln (:timeint c)))])
+           (when (and (not (none? bo)) (:done bo))
+             (for [(, k v) (.items bo)]
+               (assoc-nested d (+ (cmd->key-base c) (, "cos" cyc (:ne c) :L k)) v))
+             (sv bo None))]))
+  d)
 
 ;;; slmmir I/O
 
@@ -91,6 +147,7 @@
 
 ;;; parse slmmir text output
 
+;; (map-nstepfac nstepfac-initial ne np)
 (defn parse-cmd [cmd &optional map-nstepfac]
   (sv toks (.split cmd))
   (defn int-or-none [x]
@@ -105,7 +162,8 @@
   (for [e (.items keys)]
     (assoc d (keyword (first e)) ((second e) (get-key-val (first e)))))
   (sv nstepfac (/ (:nsteps d) (:ne d) 6))
-  (unless (none? map-nstepfac) (sv nstepfac (map-nstepfac nstepfac)))
+  (unless (none? map-nstepfac)
+    (sv nstepfac (map-nstepfac nstepfac (:ne d) (:np d))))
   (assoc d :nstepfac (int nstepfac))
   (when (= (:timeint d) "exact") (assoc d :prefine 0))
   d)
@@ -224,3 +282,32 @@
   (if (in " offst " ln)
       (parse-search-offset-nodal-subset-line ln)
       (parse-search-nodal-subset-line ln)))
+
+;;; JCP manuscript revision utilities
+
+(defn jcp-context [c]
+  (sv c.data-dir "data/feb24/"
+      c.nps (, 4 6 8 11 13))
+  c)
+
+;; Compute ne for np given tne for np=4 such that (ne,np) has the maximal #DOF
+;; <= $DOF for (tne,4).
+(defn jcp-tne2ne [tne np]
+  (// (* tne 3) (dec np)))
+
+;; The floating point actual value of resolution converted to np=4.
+(defn jcp-effective-tne [tne np]
+  (/ (* (jcp-tne2ne tne np) (dec np)) 3))
+
+(defn jcp-np4-ne [ne np]
+  (/ (* ne (dec np)) 3))
+
+;; Deduce nstepfac 1 or 5 from parse-cmd's internal values.
+(defn jcp-nenp2nstepfac [nstepfac ne np]
+  (sv nsteps (* nstepfac ne 6)
+      tne (/ (* ne (dec np)) 3)
+      tnstepfac (/ nsteps tne 6))
+  (cond [(< tnstepfac 3) 1]
+        [(< tnstepfac 8) 5]
+        [:else (raisefmt "jcp-nenp2nstepfac failed: {} {} {} => {}"
+                         nstepfac ne np tnstepfac)]))

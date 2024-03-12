@@ -138,12 +138,7 @@ void InitialCondition::init (const Shape shape, const Size n, const Real* const 
     }      
   } break;
   case VortexTracer: {
-    for (Size i = 0; i < n; ++i) {
-      const Real lambda_p = std::atan2(-std::cos(lon[i]), std::tan(lat[i]));
-      const Real rr = 3*std::sqrt((1 - slmm::square(std::cos(lat[i])) *
-                                   slmm::square(std::sin(lon[i]))));
-      u[i] = 0.5*(1 - std::tanh(0.2*rr*std::sin(lambda_p)));
-    }
+    MovingVortices::calc_tracer(0, n, lat, lon, u);
   } break;
   case CorrelatedCosineBells: {
     const Real a = -0.8, b = 0.9;
@@ -396,10 +391,45 @@ bool DivergentWindField
 //     Nair, R. D., & Jablonowski, C. (2008). Moving vortices on the sphere: A
 //     test case for horizontal advection problems. Monthly Weather Review,
 //     136(2), 699-711.
-// However, I have modified it as follows:
-//     1. Insert a cost(pi t/T) factor so that the test reverses at the
-//        midpoint.
-//     2. Multiply the prescribed omg by 4.
+// The code uses the formulas in
+//     Bosler, P. A., Kent, J., Krasny, R., & Jablonowski, C. (2017). A
+//     Lagrangian particle method with remeshing for tracer transport on the
+//     sphere. Journal of Computational Physics, 340, 639-654.
+
+const Real MovingVortices::rho0 = 3;
+const Real MovingVortices::gamma = 5;
+
+Real MovingVortices::get_Omega () {
+  return 2*M_PI/slmm::day2sec(12);
+}
+
+Real MovingVortices::calc_rho (const Real theta, const Real lambda) {
+  return rho0*std::sqrt(1 - slmm::square(std::cos(theta)*std::sin(lambda)));
+}
+
+Real MovingVortices::calc_omega (const Real Omega, const Real rho) {
+  return (rho == 0 ?
+          0 :
+          (Omega*slmm::consts::earth_radius_m*
+           1.5*std::sqrt(3)*std::tanh(rho) /
+           (rho*slmm::square(std::cosh(rho)))));
+}
+
+void MovingVortices
+::calc_tracer (const Real time, const Size n, const Real* const lat,
+               const Real* const lon, Real* const u) {
+  const auto Omega = get_Omega(), R = slmm::consts::earth_radius_m;
+  for (Size i = 0; i < n; ++i) {
+    const Real
+      lon_d = lon[i] - Omega*time,
+      lambda_p = std::atan2(-std::cos(lon_d), std::tan(lat[i])),
+      rho = calc_rho(lat[i], lon_d),
+      omega = calc_omega(Omega, rho);
+    u[i] = 1 - std::tanh((rho/MovingVortices::gamma)*
+                         std::sin(lambda_p - (omega/R)*time));
+  }
+}
+
 bool MovingVortices
 ::eval (const Real t, const Real* const d, Real* const f) const {
   Real theta, lambda;
@@ -410,25 +440,20 @@ bool MovingVortices
     lambda = d[1];
   }
   const Real
-    T = slmm::day2sec(12),            // rotational period, in seconds
-    R = slmm::consts::earth_radius_m, // sphere radius, in meters
-    Omega = 2*M_PI/T,                 // angular velocity of background rotation, rad/s
-    cost = std::cos(M_PI*t/T),
+    R = slmm::consts::earth_radius_m,
+    Omega = get_Omega(),
     // Solid body rotation factor. 1 is one rotation per T. 0 gives stationary
     // vortices. 1e-3 is enough to stabilize the instability of the stationary
     // vortex center being on a cell corner.
     fac = 1,
-    u0 = Omega*R,                     // velocity due to background rotation, m/s
-    lambda_p = lambda - fac*Omega*t,  // longitudinal center of vortex, radians
-    costh = std::cos(theta),          // cosine of latitude
-    rr = 3*std::sqrt(1 - slmm::square(costh)*slmm::square(std::sin(lambda_p))),
-    rr_denom = rr / (slmm::square(rr) + slmm::square(1.0e-10)),
-    omg = 4*(1.5*std::sqrt(3.0)*u0*std::tanh(rr)*rr_denom /
-             (slmm::square(std::cosh(rr))));
+    lambda_p = lambda - fac*Omega*t,
+    costh = std::cos(theta),
+    rho = calc_rho(theta, lambda_p),
+    omega = calc_omega(Omega, rho);
   // v
-  f[0] = omg*std::cos(lambda_p)*cost;
+  f[0] = omega*std::cos(lambda_p);
   // u
-  f[1] = omg*std::sin(lambda_p)*std::sin(theta)*cost + u0*costh*fac;
+  f[1] = omega*std::sin(lambda_p)*std::sin(theta) + R*Omega*costh*fac;
   if (use_xyz_form())
     uv2xyz(d[0], d[1], d[2], f[1]/R, f[0]/R, f[0], f[1], f[2]);
   else {

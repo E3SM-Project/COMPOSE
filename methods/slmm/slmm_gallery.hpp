@@ -60,6 +60,15 @@ struct DivergentWindField : public OdeFn {
 
 struct MovingVortices : public OdeFn {
   bool eval(const Real t, const Real* const d, Real* const f) const override;
+  static const Real rho0, gamma;
+  // Omega is the solid-body rotation rate.
+  static Real get_Omega();
+  static Real calc_rho(const Real theta, const Real lambda);
+  // omega is the vortex rotation.
+  static Real calc_omega(const Real Omega, const Real rho);
+  // Time is in seconds.
+  static void calc_tracer(const Real time, const Size n, const Real* const lat,
+                          const Real* const lon, Real* const u);
 };
 
 struct NonDivergentWindFieldHack : public OdeFn {
