@@ -440,7 +440,8 @@
 (defn norm->str [n]
   (get {:l1 "$l_1$" :l2 "$l_2$" :li "$l_{\infty}$"} n))
 
-(defn plot1-slmmir-vs-heuristic [c d nps prop-preserve ic norm pum-thr lebesgue]
+(defn plot1-slmmir-vs-heuristic [c d nps prop-preserve ic norm pum-thr lebesgue
+                                 &optional [jcp False]]
   (sv npa npy.array fs 11
       plot (if lebesgue pl.semilogy pl.loglog))
   (for [np nps]
@@ -466,7 +467,10 @@
                    :fontsize fs)))
   (my-grid)
   (pl.title (.format (+ "Test problem vs.~heuristic:\n"
-                        "nondivergent flow, 1.5$^\circ$, {}, long steps\n"
+                        "nondivergent flow, "
+                        (if jcp "$n_e = 20$, " "1.5$^\circ$, ")
+                        "{}, "
+                        (if jcp "120 steps\n" "long steps\n")
                         "$p$-refinement, {}")
                      (futils.ic-short2long ic)
                      (+ (if prop-preserve "" "no ") "property preservation"))
@@ -498,7 +502,7 @@
       (sv t (nth norm-pp-ic-tuples i))
       (pl.subplot 1 2 (inc i))
       (plot1-slmmir-vs-heuristic c d nps (nth t 1) (nth t 2) (nth t 0) pum-thr
-                                 lebesgue)
+                                 lebesgue :jcp True)
       (sv f (pl.gcf))
       (f.text (nth (, 0.02 0.52) i) 0.05 (nth (, "(a)" "(b)") i)
               :fontsize fs))))
@@ -644,7 +648,7 @@
 ;;; drivers
 
 (when-inp ["dev-parse"]
-  (sv fname "data/search-0.txt"
+  (sv fname "data/mar21/search-0.txt"
       blns (parse-search-list fname))
   (print (len blns))
   (for [b blns]
@@ -664,7 +668,7 @@
                      "search-findnodal_given_bestosn-7.txt")
       blns [])
   (for [fname data-fnames]
-    (.extend blns (parse-search-list (+ "data/" fname))))
+    (.extend blns (parse-search-list (+ "data/mar21/" fname))))
   (sv blns (uniquify-search-list blns))
   (write-slmmir-script blns script-fname))
 
@@ -674,7 +678,7 @@
       lebesgue False
       d {})
   (for [fname fnames]
-    (sv d (parse-slmmir-output (+ "data/" fname) :d d :lebesgue lebesgue)))
+    (sv d (parse-slmmir-output (+ "data/mar21/" fname) :d d :lebesgue lebesgue)))
   (for [(, norm pp ic) (, (, :l2 False "gau") (, :l2 True "cos"))]
     (plot-slmmir-vs-heuristic
       c d (.format (+ "{}slmmir-vs-heuristic-{}-{}-{}" (if lebesgue "-leb" ""))
@@ -688,7 +692,7 @@
       lebesgue False
       d {})
   (for [fname fnames]
-    (sv d (parse-slmmir-output (+ "data/" fname) :d d :lebesgue lebesgue)))
+    (sv d (parse-slmmir-output (+ "data/mar21/" fname) :d d :lebesgue lebesgue)))
   (plot-slmmir-vs-heuristic-ab
    c d (+ c.fig-dir "slmmir-vs-heuristic-ab")
    (, (, :l2 False "gau") (, :l2 True "cos"))
@@ -702,13 +706,13 @@
 
 (when-inp ["pum-vs-perturb"]
   (sv fname "pum_perturb_plot-041021.txt"
-      d (parse-pum-vs-perturb (+ "data/" fname))
+      d (parse-pum-vs-perturb (+ "data/mar21/" fname))
       c (futils.get-context))
   (plot-pum-vs-perturb c d (+ c.fig-dir "pum-vs-perturb")))
 
 (when-inp ["meam1-and-pum-vs-dx"]
   (sv c (futils.get-context)
-      data-dir "data/"
+      data-dir "data/mar21/"
       meam1-fname (+ data-dir "run_meam1_sweep-np8.txt")
       method-fnames (zip (, "gll_best" "gll_natural" "uniform_offset_nodal_subset")
                          (lfor fname (, "pum_sweep-np8-gll_best.txt"
