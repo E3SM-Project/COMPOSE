@@ -55,6 +55,9 @@
      according to the DSS.
    -io-start-cycle: Wait to start output, except ICs, until this cycle. Cycle
     count starts at 1.
+   -io-recon: For the internal I/O type, choose the reconstruction from {bilin,
+    const}. 'bilin' and 'const' act on subcells. 'bilin' is bilinear interp;
+    'const' is a simple average of nodal values. Default: bilin.
    -res: Output resolution; depends on writer. If internal, half number of
      latitude points. Default: 64.
    -rit: Record scalar measurements in time. Output is a matlab file with a
@@ -300,12 +303,13 @@ struct IntegrateOptions {
   bool track_footprint;
   // Netcdf or custom.
   IOType::Enum io_type;
+  vis::Reconstruction::Enum io_recon;
   bool io_no_dss;
   Int io_start_cycle;
   // If I/O is internal type, lat,lon grid resolution parameter.
   Int output_resolution;
   Int pg;
-  bool rhot0;
+  bool rhot0, vortex_problem;
 };
 
 struct Input {
@@ -325,7 +329,7 @@ struct Input {
   bool xyz_form; // Integrate in (x,y,z) space instead of (lat,lon).
   IntegrateOptions integrate_options;
   std::string basis;
-  bool rotate_grid;
+  bool rotate_grid, ode_tight;
 
   // Super-duper debug/analysis options.
   struct Debug {
@@ -963,6 +967,13 @@ public:
                (f->ms.back().max - f->ms.front().max) / phi0);
       }
   }
+
+  // Hack! Don't use this for anything other than the vortex problem. That
+  // problem is run w/o returning to its IC, so we need to hack our
+  // infrastructure to make the "IC" the solution at the desired time.
+  Real* get_ic_field_for_vortex_problem_to_overwrite (const int idx) {
+    return field_[idx]->ic.data();
+  }
 };
 
 static void write_binary (const Mesh& m, const AVec3s& departure_p,
@@ -972,6 +983,24 @@ static void write_binary (const Mesh& m, const AVec3s& departure_p,
   write_binary(rd.fmm().get_M(), rd.T(), rd.dgbfi().data(),
                rd.dgbfi_gll().data(), rd.Jt().data(), Js.data(),
                m.dglln2cglln.data(), "binary.dat");
+}
+
+static void vortex_problem_hook (
+  const Mesh& m, const Observer::Ptr& so, const D2Cer::Ptr& d2cer,
+  const IntegrateOptions& opts, const vis::VisWriter::Ptr& iw,
+  const int field_idx, const Real time)
+{
+  const auto dnn = len(m.dglln2cglln), cnn = nslices(m.cgll_p);
+  std::vector<Real> wrk(cnn);
+  for (Int i = 0; i < cnn; ++i) {
+    const auto n = slice(m.cgll_p, i);
+    Real lat, lon;
+    xyz2ll(n[0], n[1], n[2], lat, lon);
+    gallery::MovingVortices::calc_tracer(time, 1, &lat, &lon, &wrk[i]);
+  }
+  Real* const soln = so->get_ic_field_for_vortex_problem_to_overwrite(field_idx);
+  d2cer->c2d(wrk.data(), soln);
+  if (iw) iw->write(wrk.data());
 }
 
 static pg::PhysgridData::Ptr
@@ -1050,9 +1079,17 @@ static void integrate (
       ncw->end_definition();
     } else if (opts.io_type == IOType::internal) {
       const auto res = opts.output_resolution;
-      const auto bilin = std::make_shared<vis::BilinGLLToLatLon>(
-        m.cgll_p, m.cgll_io_c2n, 2*res+1, 4*res+1);
-      iw = std::make_shared<vis::VisWriter>(bilin, out_fn + ".bin");
+      vis::MapToArray::Ptr map;
+      if (opts.vortex_problem) {
+        Real xhat[] = {-1,0,0}, yhat[] = {0,0,1};
+        siqk::SphereGeometry::normalize(xhat);
+        map = std::make_shared<vis::BilinGLLToOrthographic>(
+          m.cgll_p, m.cgll_io_c2n, xhat, yhat, 2*res+1, 2*res+1, opts.io_recon);
+      } else {
+        map = std::make_shared<vis::BilinGLLToLatLon>(
+          m.cgll_p, m.cgll_io_c2n, 2*res+1, 4*res+1, opts.io_recon);
+      }
+      iw = std::make_shared<vis::VisWriter>(map, out_fn + ".bin");
     }
   }
 
@@ -1105,7 +1142,14 @@ static void integrate (
       if (iic == 0)
         copy(error_data.data(), tracer_p[0]->data(), len);
       if (ncw) ncw->write_field(tracer_name(ics[iic], iic), data);
-      if (iw) iw->write(data);
+      if (iw) {
+        iw->write(data);
+        if (opts.vortex_problem &&
+            ics[iic] == gallery::InitialCondition::VortexTracer) {
+          // Write this field again to match vortex_problem_hook writes.
+          iw->write(data);
+        }
+      }
       if (so) {
         so->add_field(tracer_name(ics[iic], iic),
                       tracer_p[0]->data() + iic*len);
@@ -1324,12 +1368,21 @@ static void integrate (
       }
     }
 
+    const bool report = (((step + 1) % nsteps_per_12days == 0) ||
+                         step == last_step);
+
+    if (opts.vortex_problem && (do_io || report)) {
+      for (Int iic = 0; iic < nics; ++iic) {
+        if (ics[iic] != gallery::InitialCondition::VortexTracer) continue;
+        vortex_problem_hook(m, so, d2cer, opts, iw, iic+1, tf);
+        break;
+      }
+    }
+
     // Observer.
     if (so) {
       if (step % nsteps_per_12days == 0)
         std::cout << "\nC cycle " << cycle << "\n";
-      const bool report = (((step + 1) % nsteps_per_12days == 0) ||
-                           step == last_step);
       so->set_time(tf);
       so->add_obs(0, m, rd->dgbfi_gll(), rd->dgbfi(), nullptr,
                   density_p[1]->data(),
@@ -1506,10 +1559,25 @@ static void run (const Input& in) {
     m->basis = parse_basis(in.integrate_options.method, in.basis);
     Mesh::GridRotation gr;
     if (in.rotate_grid) {
-      // Some fixed but random angle.
-      gr.axis[0] = 0.11111; gr.axis[1] = -0.051515; gr.axis[2] = 1;
+      if (in.integrate_options.vortex_problem) {
+        // Follow Nair & Jablonowski (see comment above MovingVortices::eval for
+        // full citation) and orient the grid so that the vortices move over 4
+        // of the 8 cubed-sphere corners, thus probing the effects of the
+        // corners. The grid corners are sometimes considered to be troublesome.
+        gr.axis[0] = 1; gr.axis[1] = 0; gr.axis[2] = 0;
+        // Fixed but random number a little under 1. See below.
+        gr.angle = 0.97654321*M_PI/4;
+      } else {
+        // Rotate by a fixed but random amount to keep the center of the
+        // background solid-body rotation off an element corner. An unmoving
+        // solid-body rotation exactly on a collocation point excites a mild
+        // instability, and since the center never moves, the fact that the
+        // instability is mild doesn't help: after enough cycles, it will show
+        // up. This is true for even np=3.
+        gr.axis[0] = 0.11111; gr.axis[1] = -0.051515; gr.axis[2] = 1;
+        gr.angle = 0.142314*M_PI;
+      }
       siqk::SphereGeometry::normalize(gr.axis);
-      gr.angle = 0.142314*M_PI;
     }
     init_mesh(in.np, in.tq_order, in.ne, in.nonunimesh, in.mesh_type,
               in.rotate_grid ? &gr : nullptr, *m);
@@ -1532,6 +1600,7 @@ static void run (const Input& in) {
     switch (in.timeint) {
     case TimeInt::exact:
       mi = MeshIntegratorFactory::create(in.ode, in.xyz_form, p);
+      if (in.ode_tight) mi->config_for_best_possible_accuracy();
       break;
     case TimeInt::line: {
       StudyTimeIntegratorOptions o;
@@ -1645,13 +1714,16 @@ Input::Input (int argc, char** argv)
   iopts.fitext = false;
   iopts.track_footprint = false;
   iopts.io_type = IOType::netcdf;
+  iopts.io_recon = vis::Reconstruction::Enum::bilin;
   iopts.io_start_cycle = 0;
   iopts.io_no_dss = false;
   iopts.output_resolution = 64;
   iopts.pg = 0;
   iopts.rhot0 = false;
+  iopts.vortex_problem = false;
   p_refine_experiment = 0;
   rotate_grid = false;
+  ode_tight = false;
   bool tq_specified = false, method_specified = false;
   for (int i = 1; i < argc; ++i) {
     const std::string& token = argv[i];
@@ -1706,6 +1778,8 @@ Input::Input (int argc, char** argv)
       iopts.io_start_cycle = atoi(argv[++i]);
     else if (eq(token, "-io-type"))
       iopts.io_type = IOType::convert(argv[++i]);
+    else if (eq(token, "-io-recon"))
+      iopts.io_recon = vis::Reconstruction::convert(argv[++i]);
     else if (eq(token, "-io-nodss"))
       iopts.io_no_dss = true;
     else if (eq(token, "-res"))
@@ -1732,6 +1806,8 @@ Input::Input (int argc, char** argv)
       iopts.perturb_rho = atof(argv[++i]);
     else if (eq(token, "-rotate-grid"))
       rotate_grid = true;
+    else if (eq(token, "-ode-tight"))
+      ode_tight = true;
     else if (eq(token, "-rhot0"))
       iopts.rhot0 = true;
     else
@@ -1783,6 +1859,8 @@ Input::Input (int argc, char** argv)
   std::cout << "Warning: Turning off Lauritzen diagnostics b/c not built.\n";
   iopts.lauritzen_diag = false;
 #endif
+  iopts.vortex_problem = (gallery::WindFieldType::from_string(ode) ==
+                          gallery::WindFieldType::MovingVortices);
   print(std::cout);
   SIQK_THROW_IF(iopts.subcell_bounds && ! Method::is_isl(iopts.method),
                 "-subcellbounds and not ISL is not supported.");
@@ -1827,7 +1905,10 @@ void Input::print (std::ostream& os) const {
      << "write every (-we): " << write_every << "\n"
      << "d2c (-d2c): " << integrate_options.d2c << "\n"
      << "record_in_time (-rit): " << integrate_options.record_in_time << "\n"
-     << "p-refine exp (-prefine): " << p_refine_experiment << "\n";
+     << "p-refine exp (-prefine): " << p_refine_experiment << "\n"
+     << "rotate grid (-rotate-grid): " << rotate_grid << "\n"
+     << "vortex problem: " << integrate_options.vortex_problem << "\n"
+     << "ODE tightest tol: " << ode_tight << "\n";
   if (integrate_options.fitext)
     os << "fitext\n";
   for (auto& ic : initial_conditions)

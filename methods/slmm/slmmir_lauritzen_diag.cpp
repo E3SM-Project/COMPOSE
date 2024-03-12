@@ -18,14 +18,20 @@ static void write_mixing_plot_data (const Real* cb, const Real* ccb, const Int n
   auto* const ccbd = cgdata.data() + cnn;
   d2cer.d2c(cb, cbd);
   d2cer.d2c(ccb, ccbd);
-  FILE* fid = fopen((out_prefix + "-lauritzen-diag.dat").c_str(), "w");
+  const auto fname = out_prefix + "-lauritzen-diag.dat";
+  FILE* fid = fopen(fname.c_str(), "wb");
+  if ( ! fid) {
+    printf("Could not open %s; exiting.\n", fname.c_str());
+    exit(-1);
+  }
   std::vector<float> cgsp(2*cnn);
   for (int i = 0; i < 2*cnn; ++i) cgsp[i] = cgdata[i];
+  for (int i = 0; i < 2*cnn; ++i) if (std::isnan(cgsp[i])) prc(i);
   auto* const cbdsp = cgsp.data();
   auto* const ccbdsp = cgsp.data() + cnn;
   fwrite(&cnn, sizeof(Int), 1, fid);
-  fwrite(cbd, sizeof(*cbdsp), cnn, fid);
-  fwrite(ccbd, sizeof(*ccbdsp), cnn, fid);
+  fwrite(cbdsp, sizeof(*cbdsp), cnn, fid);
+  fwrite(ccbdsp, sizeof(*ccbdsp), cnn, fid);
   fclose(fid);
 }
 

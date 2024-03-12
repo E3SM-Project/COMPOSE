@@ -17,8 +17,7 @@ struct Command {
   enum Enum {
     test_make_cubedsphere, test_make_gll_mesh, test_make_gll_subcell_mesh,
     test_gll, test_gll_2d, test_time_int, test_qp_limiter, test_face_tree,
-    test_spf, test_fit_extremum, test_nla, islet_compute,
-    test_mass_matrix
+    test_spf, test_fit_extremum, test_nla, islet_compute, test_mass_matrix
   };
   static Enum from_string (const std::string& s) {
     if (s == "test_make_cubedsphere") return test_make_cubedsphere;
