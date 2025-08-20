@@ -292,7 +292,7 @@ public:
     { Vec3s p; resize_and_copy(p, p_hm); p_ = p; }
     { Idxs e; resize_and_copy(e, e_hm); e_ = e; }
   }
-  
+
   // Clip the k'th polygon in (p,e) against mesh cm.
   KOKKOS_INLINE_FUNCTION void operator() (const Int k, Real& area) const {
     // Clipped element bounding box.
@@ -306,7 +306,7 @@ public:
   }
 
   KOKKOS_INLINE_FUNCTION
-  void join (volatile value_type& dst, volatile value_type const& src) const
+  void join (value_type& dst, value_type const& src) const
   { dst += src; }
 };
 

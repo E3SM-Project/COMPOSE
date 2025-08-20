@@ -342,7 +342,7 @@ perturb_mesh (Vec3s::HostMirror& p, const Real angle, const Real xlate,
     const Real x = p(ip,0), y = p(ip,1);
     p(ip,0) =  cr*x - sr*y + xlate;
     p(ip,1) = -sr*x + cr*y + ylate;
-  }  
+  }
 }
 
 static void
@@ -518,5 +518,5 @@ int main (int argc, char** argv) {
     }
     std::cerr << (nerr ? "FAIL" : "PASS") << "ED\n";
   }
-  Kokkos::finalize_all();
+    Kokkos::finalize();
 }

@@ -105,10 +105,12 @@ if (NOT COMPOSE_TEST_NRANK)
 endif ()
 
 set (COMPOSE_COMPILE_FLAGS "-g ${Kokkos_CXX_FLAGS} ${CMAKE_CXX_FLAGS}")
-if (CUDA_BUILD)
-  set (COMPOSE_COMPILE_FLAGS "${COMPOSE_COMPILE_FLAGS} --expt-extended-lambda --expt-relaxed-constexpr")
-endif ()
 set (COMPOSE_LINK_FLAGS "-L${Kokkos_LIB_DIR} ${Kokkos_LD_FLAGS}")
+if (CUDA_BUILD)
+ set (COMPOSE_COMPILE_FLAGS "${COMPOSE_COMPILE_FLAGS} --expt-extended-lambda --expt-relaxed-constexpr")
+ set (COMPOSE_LINK_FLAGS "${COMPOSE_LINK_FLAGS} -lcuda")
+endif ()
+
 set (COMPOSE_INCLUDES ${Kokkos_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/share ${CMAKE_BINARY_DIR}/config)
 set (COMPOSE_LIBRARIES ${KOKKOS_LIBS_LIST})
 

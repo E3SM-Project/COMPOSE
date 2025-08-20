@@ -62,7 +62,7 @@ void calc_residual (const ConstVec3sT& p, const Quad& e, const Real a,
   calc_ref_to_bilinear(p, e, a, b, r);
   const Real rnorm = std::sqrt(SphereGeometry::norm2(r));
   for (Int i = 0; i < 3; ++i)
-    r[i] = r[i]/rnorm - q[i];  
+    r[i] = r[i]/rnorm - q[i];
 }
 
 // Compute the Jacobian matrix of the residual function: Jacobian(ref square ->
@@ -75,7 +75,7 @@ KOKKOS_INLINE_FUNCTION
 void calc_Jacobian (const ConstVec3sT& p, const Quad& e, Real a, Real b,
                     Real J[6]) {
   a = 0.5*(a + 1);
-  b = 0.5*(b + 1);  
+  b = 0.5*(b + 1);
   Real r[3];
   for (Int i = 0; i < 3; ++i) {
     Real t1, t2, t3, t4;
@@ -244,7 +244,7 @@ public:
   }
 
   KOKKOS_INLINE_FUNCTION
-  void join (volatile value_type& dst, volatile value_type const& src) const {
+  void join ( value_type& dst, value_type const& src) const {
     dst.max_nits = max(dst.max_nits, src.max_nits);
     dst.sum_nits += src.sum_nits;
     dst.nfails += src.nfails;
