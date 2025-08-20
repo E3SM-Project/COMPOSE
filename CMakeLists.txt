@@ -130,7 +130,9 @@ set(COMPOSE_CONFIG_FILES
 )
 install(FILES ${COMPOSE_CONFIG_FILES} DESTINATION include/compose)
 
-add_library (${PROJECT_NAME} ${SOURCES})
+
+include(GNUInstallDirs)
+add_library (${PROJECT_NAME} STATIC ${SOURCES})
 set_target_properties (${PROJECT_NAME} PROPERTIES
   COMPILE_FLAGS "${COMPOSE_COMPILE_FLAGS}"
   LINK_FLAGS "${COMPOSE_LINK_FLAGS}")
@@ -139,8 +141,8 @@ target_include_directories (${PROJECT_NAME} PRIVATE siqk cedr)
 target_include_directories (${PROJECT_NAME} PUBLIC ${COMPOSE_INCLUDES})
 target_link_libraries (${PROJECT_NAME} ${COMPOSE_LIBRARIES})
 
-install (TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
-install (FILES ${HEADERS} ${CMAKE_BINARY_DIR}/config/compose_config.h DESTINATION include/compose)
+install (TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install (FILES ${HEADERS} ${CMAKE_BINARY_DIR}/config/compose_config.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/compose)
 
 enable_testing ()
 add_subdirectory(siqk)
