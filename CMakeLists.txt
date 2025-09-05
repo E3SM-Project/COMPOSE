@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.5)
 
 project (compose CXX)
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 17)
 
 function (prc var)
   message ("${var}: ${${var}}")
